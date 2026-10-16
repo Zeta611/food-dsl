@@ -1,0 +1,3 @@
+[workspace]
+members = ["dsl", "wasm"]
+resolver = "3"

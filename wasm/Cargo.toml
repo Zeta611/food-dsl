@@ -1,0 +1,7 @@
+[package]
+name = "food-dsl-wasm"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+food-dsl = { version = "0.1.0", path = "../dsl" }
