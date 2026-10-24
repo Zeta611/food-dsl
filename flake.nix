@@ -8,11 +8,7 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-  };
-
-  outputs =
-    { nixpkgs, rust-overlay, ... }:
-    let
+  }; outputs = { nixpkgs, rust-overlay, ... }: let
       systems = [
         "aarch64-darwin"
         "x86_64-darwin"
@@ -45,7 +41,7 @@
               rust
               pkgs.wasm-pack
               pkgs.nodejs
-              pkgs.tailwindcss_4
+              pkgs.pnpm
               pkgs.elmPackages.elm
               pkgs.elmPackages.elm-test
               pkgs.elmPackages.elm-format

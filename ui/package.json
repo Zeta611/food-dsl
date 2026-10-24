@@ -1,0 +1,32 @@
+{
+  "name": "ui",
+  "version": "0.1.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently \"pnpm:dev:elm\" \"pnpm:dev:css\"",
+    "dev:elm": "elm-live src/Main.elm --startpage=./static/index.html --dir=./static -- --output=./static/elm.js --debug",
+    "build:elm": "elm make src/Main.elm --output=./static/elm.js --debug",
+    "dev:css": "tailwindcss -i ./static/tailwind.css -o ./static/tailwind.build.css --watch",
+    "build:css": "tailwindcss -i ./static/tailwind.css -o ./static/tailwind.build.css"
+  },
+  "keywords": [],
+  "author": "Jay Lee <jay.lee@cs.berkeley.edu> (https://jaylee.pl/)",
+  "license": "BSD-3-Clause",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.15.0",
+      "onFail": "download"
+    }
+  },
+  "packageManager": "pnpm@12.15.0",
+  "type": "module",
+  "devDependencies": {
+    "@biomejs/biome": "2.6.2",
+    "@tailwindcss/cli": "^4.3.3",
+    "concurrently": "^10.0.6",
+    "daisyui": "^5.7.50",
+    "tailwindcss": "^4.3.3"
+  }
+}
