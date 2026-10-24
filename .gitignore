@@ -1,9 +1,15 @@
-# Created by https://www.toptal.com/developers/gitignore/api/rust,direnv,react,macos
-# Edit at https://www.toptal.com/developers/gitignore?templates=rust,direnv,react,macos
+# Created by https://www.toptal.com/developers/gitignore/api/rust,direnv,react,macos,elm
+# Edit at https://www.toptal.com/developers/gitignore?templates=rust,direnv,react,macos,elm
 
 ### direnv ###
 .direnv
 .envrc
+
+### Elm ###
+# elm-package generated files
+elm-stuff
+# elm-repl generated files
+repl-temp-*
 
 ### macOS ###
 # General
@@ -70,4 +76,4 @@ Cargo.lock
 # MSVC Windows builds of rustc generate these, which store debugging information
 *.pdb
 
-# End of https://www.toptal.com/developers/gitignore/api/rust,direnv,react,macos
+# End of https://www.toptal.com/developers/gitignore/api/rust,direnv,react,macos,elm
