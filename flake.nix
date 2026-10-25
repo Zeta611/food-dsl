@@ -46,7 +46,6 @@
               pkgs.elmPackages.elm-test
               pkgs.elmPackages.elm-format
               pkgs.elmPackages.elm-review
-              pkgs.elmPackages.elm-live
             ];
           };
         }

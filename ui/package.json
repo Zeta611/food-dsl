@@ -4,11 +4,14 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "concurrently \"pnpm:dev:elm\" \"pnpm:dev:css\"",
-    "dev:elm": "elm-live src/Main.elm --startpage=./static/index.html --dir=./static -- --output=./static/elm.js --debug",
-    "build:elm": "elm make src/Main.elm --output=./static/elm.js --debug",
-    "dev:css": "tailwindcss -i ./static/tailwind.css -o ./static/tailwind.build.css --watch",
-    "build:css": "tailwindcss -i ./static/tailwind.css -o ./static/tailwind.build.css"
+    "dev": "concurrently -k \"pnpm:dev:elm\" \"pnpm:dev:css\" \"pnpm:dev:vite\"",
+    "dev:elm": "elm-live src/Main.elm --no-server -- --output=public/elm.js --debug",
+    "dev:css": "tailwindcss -i ./public/tailwind.css -o ./public/tailwind.build.css --watch",
+    "dev:vite": "vite",
+    "build:elm": "elm make src/Main.elm --output=public/elm.js --debug",
+    "build:css": "tailwindcss -i ./public/tailwind.css -o ./public/tailwind.build.css",
+    "build": "pnpm build:elm && pnpm build:css && vite build",
+    "preview": "vite preview"
   },
   "keywords": [],
   "author": "Jay Lee <jay.lee@cs.berkeley.edu> (https://jaylee.pl/)",
@@ -25,8 +28,15 @@
   "devDependencies": {
     "@biomejs/biome": "2.6.2",
     "@tailwindcss/cli": "^4.3.3",
+    "@types/three": "^0.186.0",
     "concurrently": "^10.0.6",
     "daisyui": "^5.7.50",
-    "tailwindcss": "^4.3.3"
+    "elm-live": "^4.0.2",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
   }
 }

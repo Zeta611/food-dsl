@@ -1,14 +1,23 @@
 module Main exposing (main)
 
 import Browser
-import Html exposing (Html, button, div, h1, span, text)
-import Html.Attributes exposing (class)
+import Html exposing (Html, button, div, h1, node, span, text)
+import Html.Attributes exposing (attribute, class)
 import Html.Events exposing (onClick)
 
 
-main : Program () Int Msg
+main : Program Int Model Msg
 main =
-    Browser.sandbox { init = 0, update = update, view = view }
+    Browser.element { init = init, view = view, update = update, subscriptions = subscriptions }
+
+
+type alias Model =
+    { cnt : Int }
+
+
+init : Int -> ( Model, Cmd Msg )
+init cnt =
+    ( { cnt = cnt }, Cmd.none )
 
 
 type Msg
@@ -17,29 +26,47 @@ type Msg
     | Reset
 
 
-update : Msg -> Int -> Int
+update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         Increment ->
-            model + 1
+            ( { model | cnt = model.cnt + 1 }
+            , Cmd.none
+            )
 
         Decrement ->
-            model - 1
+            ( { model | cnt = model.cnt - 1 }
+            , Cmd.none
+            )
 
         Reset ->
-            0
+            ( { model | cnt = 0 }
+            , Cmd.none
+            )
 
 
-view : Int -> Html Msg
+view : Model -> Html Msg
 view model =
     div [ class "p-3" ]
         [ h1 [ class "text-3xl font-bold" ] [ text "Hello, World!" ]
         , div [ class "grid min-h-screen place-items-center" ]
-            [ span [ class "flex gap-3 place-items-center" ]
-                [ button [ onClick Decrement, class "btn" ] [ text "-" ]
-                , div [] [ text (String.fromInt model) ]
-                , button [ onClick Increment, class "btn" ] [ text "+" ]
-                , button [ onClick Reset, class "btn" ] [ text "🔥" ]
+            [ div []
+                [ node
+                    "render-view"
+                    [ attribute "value" (String.fromInt model.cnt)
+                    ]
+                    []
+                , span [ class "flex gap-3 place-items-center" ]
+                    [ button [ onClick Decrement, class "btn" ] [ text "-" ]
+                    , div [] [ text (String.fromInt model.cnt) ]
+                    , button [ onClick Increment, class "btn" ] [ text "+" ]
+                    , button [ onClick Reset, class "btn" ] [ text "🔥" ]
+                    ]
                 ]
             ]
         ]
+
+
+subscriptions : Model -> Sub Msg
+subscriptions _ =
+    Sub.none
