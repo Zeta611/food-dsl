@@ -55,18 +55,18 @@ update msg ({ params } as model) =
 
 
 view : Model -> Html Msg
-view model =
+view { params } =
     div [ class "relative h-screen w-screen overflow-hidden bg-base-200" ]
         [ node "render-preview"
             [ class "absolute inset-0 block"
-            , property "params" (encodeParams model.params)
+            , property "params" (encodeParams params)
             ]
             []
         , aside [ class "card card-sm absolute bottom-4 right-4 w-80 bg-base-100 border-base-300 border-2 text-base-content shadow-lg" ]
             [ div [ class "card-body gap-1" ]
                 [ h2 [ class "card-title" ] [ text "Configuration" ]
-                , slider "Radius" { min = 2, max = 20, step = 0.5 } model.params.radius SetRadius
-                , slider "Tube" { min = 0.5, max = 8, step = 0.1 } model.params.tube SetTube
+                , slider "Radius" { min = 2, max = 20, step = 0.5 } params.radius SetRadius
+                , slider "Tube" { min = 0.5, max = 8, step = 0.1 } params.tube SetTube
                 ]
             ]
         ]

@@ -17,6 +17,7 @@ customElements.define(
       this.#torus.geometry = new THREE.TorusGeometry(radius, tube, 16, 100);
     }
 
+    // Elm sets the params via `property "params" ...`
     set params(p: Params) {
       this.#params = p;
       this.#applyParams();
