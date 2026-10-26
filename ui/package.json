@@ -8,6 +8,7 @@
     "dev:elm": "elm-live src/Main.elm --no-server -- --output=public/elm.js --debug",
     "dev:css": "tailwindcss -i ./public/tailwind.css -o ./public/tailwind.build.css --watch",
     "dev:vite": "vite",
+    "typecheck": "tsc --noEmit",
     "build:elm": "elm make src/Main.elm --output=public/elm.js --debug",
     "build:css": "tailwindcss -i ./public/tailwind.css -o ./public/tailwind.build.css",
     "build": "pnpm build:elm && pnpm build:css && vite build",

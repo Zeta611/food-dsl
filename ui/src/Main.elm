@@ -52,7 +52,7 @@ view model =
         , div [ class "grid min-h-screen place-items-center" ]
             [ div []
                 [ node
-                    "render-view"
+                    "render-controller"
                     [ attribute "value" (String.fromInt model.cnt)
                     ]
                     []
