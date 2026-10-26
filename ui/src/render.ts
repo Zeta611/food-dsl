@@ -1,26 +1,36 @@
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import * as THREE from "three/webgpu";
-
-// KEEP IN SYNC WITH `encodeParams` in Main.elm!
-type Params = { radius: number; tube: number };
+import { type Cup, compile } from "./mockCore";
 
 customElements.define(
   "render-preview",
   class extends HTMLElement {
-    #params: Params = { radius: 10, tube: 3 };
-    #torus?: THREE.Mesh;
+    #cup?: Cup;
+    #wireframe = false;
+    #mesh?: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
 
-    #applyParams() {
-      if (!this.#torus) return;
-      const { radius, tube } = this.#params;
-      this.#torus.geometry.dispose();
-      this.#torus.geometry = new THREE.TorusGeometry(radius, tube, 16, 100);
+    #applyCup() {
+      if (!this.#mesh || !this.#cup) return;
+
+      const { positions, indices } = compile(this.#cup);
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+      geometry.computeVertexNormals();
+      this.#mesh.geometry.dispose();
+      this.#mesh.geometry = geometry;
     }
 
-    // Elm sets the params via `property "params" ...`
-    set params(p: Params) {
-      this.#params = p;
-      this.#applyParams();
+    // Elm sets these via `property "cup" ...` and `property "wireframe" ...`.
+    // Elm may set them before the mesh exists, so store them first.
+    set cup(c: Cup) {
+      this.#cup = c;
+      this.#applyCup();
+    }
+
+    set wireframe(w: boolean) {
+      this.#wireframe = w;
+      if (this.#mesh) this.#mesh.material.wireframe = w;
     }
 
     connectedCallback() {
@@ -47,12 +57,13 @@ customElements.define(
         camera.updateProjectionMatrix();
       }).observe(this);
 
-      const material = new THREE.MeshStandardMaterial({ color: 0xff6347 });
-      const torus = new THREE.Mesh(undefined, material);
-      torus.position.y = 12;
-      scene.add(torus);
-      this.#torus = torus;
-      this.#applyParams();
+      const material = new THREE.MeshStandardMaterial({
+        color: 0x7b3f00,
+        wireframe: this.#wireframe,
+      });
+      this.#mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
+      scene.add(this.#mesh);
+      this.#applyCup();
 
       const pointLight = new THREE.PointLight(0xffffff, 300);
       pointLight.position.set(10, 20, 10);
@@ -68,11 +79,7 @@ customElements.define(
 
       const controls = new OrbitControls(camera, renderer.domElement);
 
-      function animate(time: number) {
-        torus.rotation.x = time / 2000;
-        torus.rotation.y = time / 1000;
-        torus.rotation.z = time / 2000;
-
+      function animate() {
         controls.update();
         renderer.render(scene, camera);
       }

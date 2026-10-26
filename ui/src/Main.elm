@@ -3,8 +3,8 @@ module Main exposing (main)
 import Browser
 import Draggable
 import Html exposing (Html, aside, div, h2, input, label, node, span, text)
-import Html.Attributes exposing (class, property, step, style, type_, value)
-import Html.Events exposing (onInput)
+import Html.Attributes exposing (checked, class, property, step, style, type_, value)
+import Html.Events exposing (onCheck, onInput)
 import Json.Encode as E
 
 
@@ -23,14 +23,22 @@ main =
 
 
 type alias Model =
-    { params : Params
+    { cup : Cup
+    , wireframe : Bool
     , panelState : PanelState
     }
 
 
-type alias Params =
-    { radius : Float
-    , tube : Float
+{-| Mockup "AST"
+-}
+type alias Cup =
+    { bottomRadius : Float
+    , topRadius : Float
+    , height : Float
+    , fluteAmplitude : Float
+    , fluteCount : Float
+    , ringAmplitude : Float
+    , ringCount : Float
     }
 
 
@@ -42,8 +50,16 @@ type alias PanelState =
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { params =
-            { radius = 10, tube = 3 }
+    ( { cup =
+            { bottomRadius = 10
+            , topRadius = 14
+            , height = 16
+            , fluteAmplitude = 0.9
+            , fluteCount = 16
+            , ringAmplitude = 0
+            , ringCount = 0
+            }
+      , wireframe = False
       , panelState =
             { pos = ( 0, 0 )
             , drag = Draggable.init
@@ -58,20 +74,44 @@ init _ =
 
 
 type Msg
-    = ShapeSetRadius Float
-    | ShapeSetTube Float
+    = CupSetBottomRadius Float
+    | CupSetTopRadius Float
+    | CupSetHeight Float
+    | CupSetFluteAmplitude Float
+    | CupSetFluteCount Float
+    | CupSetRingAmplitude Float
+    | CupSetRingCount Float
+    | SetWireframe Bool
     | PanelOnDragBy Draggable.Delta
     | PanelDragMsg (Draggable.Msg ())
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
-update msg ({ params, panelState } as model) =
+update msg ({ cup, panelState } as model) =
     case msg of
-        ShapeSetRadius r ->
-            ( { model | params = { params | radius = r } }, Cmd.none )
+        CupSetBottomRadius r ->
+            ( { model | cup = { cup | bottomRadius = r } }, Cmd.none )
 
-        ShapeSetTube t ->
-            ( { model | params = { params | tube = t } }, Cmd.none )
+        CupSetTopRadius r ->
+            ( { model | cup = { cup | topRadius = r } }, Cmd.none )
+
+        CupSetHeight h ->
+            ( { model | cup = { cup | height = h } }, Cmd.none )
+
+        CupSetFluteAmplitude a ->
+            ( { model | cup = { cup | fluteAmplitude = a } }, Cmd.none )
+
+        CupSetFluteCount n ->
+            ( { model | cup = { cup | fluteCount = n } }, Cmd.none )
+
+        CupSetRingAmplitude a ->
+            ( { model | cup = { cup | ringAmplitude = a } }, Cmd.none )
+
+        CupSetRingCount n ->
+            ( { model | cup = { cup | ringCount = n } }, Cmd.none )
+
+        SetWireframe w ->
+            ( { model | wireframe = w }, Cmd.none )
 
         PanelOnDragBy ( dx, dy ) ->
             let
@@ -103,7 +143,7 @@ dragConfig =
 
 
 view : Model -> Html Msg
-view { params, panelState } =
+view { cup, wireframe, panelState } =
     let
         ( x, y ) =
             panelState.pos
@@ -117,12 +157,13 @@ view { params, panelState } =
     div [ class "relative h-screen w-screen overflow-hidden bg-base-200" ]
         [ node "render-preview"
             [ class "absolute inset-0 block"
-            , property "params" (encodeParams params)
+            , property "cup" (encodeCup cup)
+            , property "wireframe" (E.bool wireframe)
             ]
             []
         , aside
             [ class
-                "card card-sm absolute top-4 right-4 w-80 bg-base-100 border-base-300 border-2 text-base-content shadow-lg select-none"
+                "card card-sm absolute top-4 right-4 w-80 bg-base-100 border-base-300 border-2 text-base-content shadow-lg select-none resize-y overflow-auto"
             , style "transform" panelTrans
             ]
             [ div [ class "card-body gap-2" ]
@@ -130,14 +171,25 @@ view { params, panelState } =
                     [ text "Configuration"
                     , span [ class "icon-[hugeicons--grip-vertical]" ] []
                     ]
-                , slider "Radius"
-                    { min = 2, max = 20, step = 0.5 }
-                    params.radius
-                    ShapeSetRadius
-                , slider "Tube"
-                    { min = 0.5, max = 8, step = 0.1 }
-                    params.tube
-                    ShapeSetTube
+                , slider "Bottom radius" { min = 5, max = 40, step = 0.5 } cup.bottomRadius CupSetBottomRadius
+                , slider "Top radius" { min = 5, max = 50, step = 0.5 } cup.topRadius CupSetTopRadius
+                , slider "Height" { min = 5, max = 60, step = 1 } cup.height CupSetHeight
+
+                -- min radius 5 - 2 - 2 > 0
+                , slider "Flute depth" { min = 0, max = 2, step = 0.1 } cup.fluteAmplitude CupSetFluteAmplitude
+                , slider "Flutes" { min = 0, max = 40, step = 1 } cup.fluteCount CupSetFluteCount
+                , slider "Ring depth" { min = 0, max = 2, step = 0.1 } cup.ringAmplitude CupSetRingAmplitude
+                , slider "Rings" { min = 0, max = 20, step = 1 } cup.ringCount CupSetRingCount
+                , label [ class "flex justify-between text-sm" ]
+                    [ text "Wireframe"
+                    , input
+                        [ type_ "checkbox"
+                        , class "toggle toggle-sm"
+                        , checked wireframe
+                        , onCheck SetWireframe
+                        ]
+                        []
+                    ]
                 ]
             ]
         ]
@@ -168,9 +220,27 @@ slider name range current toMsg =
         ]
 
 
-encodeParams : Params -> E.Value
-encodeParams { radius, tube } =
-    E.object [ ( "radius", E.float radius ), ( "tube", E.float tube ) ]
+{-| Must match `Cup` in mockCore.ts.
+-}
+encodeCup : Cup -> E.Value
+encodeCup cup =
+    E.object
+        [ ( "bottomRadius", E.float cup.bottomRadius )
+        , ( "topRadius", E.float cup.topRadius )
+        , ( "height", E.float cup.height )
+        , ( "flutes"
+          , E.object
+                [ ( "amplitude", E.float cup.fluteAmplitude )
+                , ( "count", E.float cup.fluteCount )
+                ]
+          )
+        , ( "rings"
+          , E.object
+                [ ( "amplitude", E.float cup.ringAmplitude )
+                , ( "count", E.float cup.ringCount )
+                ]
+          )
+        ]
 
 
 
