@@ -1,4 +1,5 @@
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import * as THREE from "three/webgpu";
 import { type Cup, compile } from "./mockCore";
 
@@ -37,7 +38,7 @@ customElements.define(
       this.init();
     }
 
-    init() {
+    async init() {
       const scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
 
@@ -48,7 +49,8 @@ customElements.define(
       const canvas = document.createElement("canvas");
       this.appendChild(canvas);
 
-      const renderer = new THREE.WebGPURenderer({ canvas });
+      const renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
+      await renderer.init();
 
       new ResizeObserver(() => {
         const { clientWidth: w, clientHeight: h } = this;
@@ -57,25 +59,48 @@ customElements.define(
         camera.updateProjectionMatrix();
       }).observe(this);
 
-      const material = new THREE.MeshStandardMaterial({
-        color: 0x7b3f00,
+      renderer.toneMapping = THREE.AgXToneMapping;
+      renderer.shadowMap.enabled = true;
+
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+      scene.environmentIntensity = 0.5;
+
+      const material = new THREE.MeshPhysicalMaterial({
+        color: 0x3b1e10,
+        roughness: 0.4,
+        clearcoat: 0.2,
+        clearcoatRoughness: 0.3,
         wireframe: this.#wireframe,
       });
       this.#mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
+      this.#mesh.castShadow = true;
       scene.add(this.#mesh);
       this.#applyCup();
 
-      const pointLight = new THREE.PointLight(0xffffff, 300);
-      pointLight.position.set(10, 20, 10);
-      scene.add(pointLight);
+      const keyLight = new THREE.DirectionalLight(0xfff1e0, 4.5);
+      keyLight.position.set(40, 80, 30);
+      keyLight.castShadow = true;
+      keyLight.shadow.mapSize.set(2048, 2048);
+      keyLight.shadow.camera.left = -60;
+      keyLight.shadow.camera.right = 60;
+      keyLight.shadow.camera.top = 60;
+      keyLight.shadow.camera.bottom = -60;
+      keyLight.shadow.normalBias = 0.05;
+      keyLight.shadow.radius = 4;
+      scene.add(keyLight);
 
-      const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x777777, 2);
-      scene.add(hemisphereLight);
+      const floor = new THREE.Mesh(
+        new THREE.PlaneGeometry(400, 400),
+        new THREE.ShadowMaterial({ opacity: 0.25 }),
+      );
+      floor.rotation.x = -Math.PI / 2;
+      floor.receiveShadow = true;
+      scene.add(floor);
 
-      const lightHelper = new THREE.PointLightHelper(pointLight, 0.8, 0x777711);
-
-      const gridHelper = new THREE.GridHelper(200, 50);
-      scene.add(lightHelper, gridHelper);
+      const gridHelper = new THREE.GridHelper(200, 20, 0xc93400, 0xffd6a7);
+      gridHelper.material.toneMapped = false;
+      scene.add(gridHelper);
 
       const controls = new OrbitControls(camera, renderer.domElement);
 
