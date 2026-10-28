@@ -11,6 +11,7 @@ default = ["console_error_panic_hook"]
 
 [dependencies]
 wasm-bindgen = "0.2.84"
+serde-wasm-bindgen = "0.6.5"
 
 # The `console_error_panic_hook` crate provides better debugging of panics by
 # logging them with `console.error`. This is great for development, but requires
@@ -18,7 +19,7 @@ wasm-bindgen = "0.2.84"
 # code size when deploying.
 console_error_panic_hook = { version = "0.1.7", optional = true }
 
-fldsmdfr = { version = "0.1.0", path = "../dsl" }
+fldsmdfr = { version = "0.1.0", path = "../dsl", features = ["wasm"] }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.34"

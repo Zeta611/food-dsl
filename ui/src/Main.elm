@@ -36,9 +36,9 @@ type alias Cup =
     , topRadius : Float
     , height : Float
     , fluteAmplitude : Float
-    , fluteCount : Float
+    , fluteCount : Int
     , ringAmplitude : Float
-    , ringCount : Float
+    , ringCount : Int
     }
 
 
@@ -78,9 +78,9 @@ type Msg
     | CupSetTopRadius Float
     | CupSetHeight Float
     | CupSetFluteAmplitude Float
-    | CupSetFluteCount Float
+    | CupSetFluteCount Int
     | CupSetRingAmplitude Float
-    | CupSetRingCount Float
+    | CupSetRingCount Int
     | SetWireframe Bool
     | PanelOnDragBy Draggable.Delta
     | PanelDragMsg (Draggable.Msg ())
@@ -177,9 +177,9 @@ view { cup, wireframe, panelState } =
 
                 -- min radius 5 - 2 - 2 > 0
                 , slider "Flute depth" { min = 0, max = 2, step = 0.1 } cup.fluteAmplitude CupSetFluteAmplitude
-                , slider "Flutes" { min = 0, max = 40, step = 1 } cup.fluteCount CupSetFluteCount
+                , slider "Flutes" { min = 0, max = 40, step = 1 } (toFloat cup.fluteCount) (round >> CupSetFluteCount)
                 , slider "Ring depth" { min = 0, max = 2, step = 0.1 } cup.ringAmplitude CupSetRingAmplitude
-                , slider "Rings" { min = 0, max = 20, step = 1 } cup.ringCount CupSetRingCount
+                , slider "Rings" { min = 0, max = 20, step = 1 } (toFloat cup.ringCount) (round >> CupSetRingCount)
                 , label [ class "flex justify-between text-sm" ]
                     [ text "Wireframe"
                     , input
@@ -220,7 +220,7 @@ slider name range current toMsg =
         ]
 
 
-{-| Must match `Cup` in mockCore.ts.
+{-| Must match `Cup` in `dsl/src/lib.rs`
 -}
 encodeCup : Cup -> E.Value
 encodeCup cup =
@@ -231,13 +231,13 @@ encodeCup cup =
         , ( "flutes"
           , E.object
                 [ ( "amplitude", E.float cup.fluteAmplitude )
-                , ( "count", E.float cup.fluteCount )
+                , ( "count", E.int cup.fluteCount )
                 ]
           )
         , ( "rings"
           , E.object
                 [ ( "amplitude", E.float cup.ringAmplitude )
-                , ( "count", E.float cup.ringCount )
+                , ( "count", E.int cup.ringCount )
                 ]
           )
         ]

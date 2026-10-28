@@ -1,14 +1,42 @@
 mod utils;
 
+use fldsmdfr::{Cup, Geometry};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
-extern "C" {
-    fn alert(s: &str);
+pub struct GeometryHandle {
+    positions: Vec<f32>,
+    indices: Vec<u32>,
 }
 
 #[wasm_bindgen]
-pub fn greet() {
+impl GeometryHandle {
+    pub fn positions_len(&self) -> usize {
+        self.positions.len()
+    }
+
+    pub fn indices_len(&self) -> usize {
+        self.indices.len()
+    }
+
+    pub fn positions_ptr(&self) -> *const f32 {
+        self.positions.as_ptr()
+    }
+
+    pub fn indices_ptr(&self) -> *const u32 {
+        self.indices.as_ptr()
+    }
+}
+
+impl From<Geometry> for GeometryHandle {
+    fn from(Geometry { positions, indices }: Geometry) -> Self {
+        GeometryHandle { positions, indices }
+    }
+}
+
+#[wasm_bindgen]
+pub fn compile(cup: JsValue) -> Result<GeometryHandle, JsError> {
     utils::set_panic_hook();
-    alert(&format!("Hello, world, 1 + 2 = {}!", fldsmdfr::add(1, 2)));
+    let cup: Cup = serde_wasm_bindgen::from_value(cup)?;
+    Ok(fldsmdfr::compile(&cup).into())
 }

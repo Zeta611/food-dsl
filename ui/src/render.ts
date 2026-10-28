@@ -1,19 +1,35 @@
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import * as THREE from "three/webgpu";
-import { type Cup, compile } from "./mockCore";
+import init, { type Cup, compile, type GeometryHandle } from "../../binding/pkg";
+
+const { memory } = await init();
 
 customElements.define(
   "render-preview",
   class extends HTMLElement {
     #cup?: Cup;
+    #geometryHandle?: GeometryHandle;
     #wireframe = false;
     #mesh?: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
 
     #applyCup() {
       if (!this.#mesh || !this.#cup) return;
 
-      const { positions, indices } = compile(this.#cup);
+      const geometryHandle = compile(this.#cup);
+      const positions = new Float32Array(
+        memory.buffer,
+        geometryHandle.positions_ptr(),
+        geometryHandle.positions_len(),
+      );
+      const indices = new Uint32Array(
+        memory.buffer,
+        geometryHandle.indices_ptr(),
+        geometryHandle.indices_len(),
+      );
+      this.#geometryHandle?.free();
+      this.#geometryHandle = geometryHandle;
+
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
       geometry.setIndex(new THREE.BufferAttribute(indices, 1));

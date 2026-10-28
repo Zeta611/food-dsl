@@ -7,7 +7,13 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["**", "!**/pnpm-lock.yaml", "!**/pnpm-workspace.yaml", "!!**/elm-stuff"]
+    "includes": [
+      "**",
+      "!**/pnpm-lock.yaml",
+      "!**/pnpm-workspace.yaml",
+      "!**/elm.json",
+      "!!**/elm-stuff"
+    ]
   },
   "formatter": {
     "enabled": true,
