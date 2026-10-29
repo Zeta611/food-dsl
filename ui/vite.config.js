@@ -1,9 +1,11 @@
 import { resolve } from "node:path";
+import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
   server: { fs: { allow: [".."] } },
   plugins: [
+    tailwindcss(),
     {
       name: "elm-live-reload",
       configureServer(server) {
