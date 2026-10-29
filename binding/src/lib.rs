@@ -1,6 +1,6 @@
 mod utils;
 
-use fldsmdfr::{BuiltInSweep, Cup, Geometry};
+use fldsmdfr::{Cup, Geometry, TexturedSweep};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -37,6 +37,6 @@ impl From<Geometry> for GeometryHandle {
 #[wasm_bindgen]
 pub fn compile(cup: JsValue) -> Result<GeometryHandle, JsError> {
     utils::set_panic_hook();
-    let sweep = BuiltInSweep::from(serde_wasm_bindgen::from_value::<Cup>(cup)?);
+    let sweep = TexturedSweep::from(serde_wasm_bindgen::from_value::<Cup>(cup)?);
     Ok(fldsmdfr::meshify(&sweep).into())
 }

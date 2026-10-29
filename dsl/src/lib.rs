@@ -5,21 +5,17 @@ pub trait Curve2D {
     fn path(&self, t: f64) -> (f64, f64);
 }
 
-enum BuiltInCurve {
-    Circle(Circle),
-    Squircle(Squircle),
+pub trait DifferentiableCurve2D: Curve2D {
+    /** ⟨ẏ(t), −ẋ(t)⟩ / ‖ċ(t)‖ at t ∈ \[0, 1\] */
+    fn normal(&self, t: f64) -> (f64, f64);
 }
 
-impl Curve2D for BuiltInCurve {
-    fn path(&self, t: f64) -> (f64, f64) {
-        match self {
-            Self::Circle(c) => c.path(t),
-            Self::Squircle(c) => c.path(t),
-        }
-    }
+fn normalize((x, y): (f64, f64)) -> (f64, f64) {
+    let len = x.hypot(y);
+    (x / len, y / len)
 }
 
-struct Circle {
+pub struct Circle {
     radius: f64,
 }
 
@@ -30,31 +26,32 @@ impl Curve2D for Circle {
     }
 }
 
-impl From<Circle> for BuiltInCurve {
-    fn from(c: Circle) -> Self {
-        Self::Circle(c)
+impl DifferentiableCurve2D for Circle {
+    fn normal(&self, t: f64) -> (f64, f64) {
+        let (s, c) = (std::f64::consts::TAU * t).sin_cos();
+        (c, s)
     }
 }
 
 // Maybe use a more parametrizable squircle
 // https://www.figma.com/blog/desperately-seeking-squircles/
-struct Squircle {
+pub struct Squircle {
     radius: f64,
 }
 
 impl Curve2D for Squircle {
+    // https://en.wikipedia.org/wiki/Squircle in polar form
     fn path(&self, t: f64) -> (f64, f64) {
-        // https://scipython.com/blog/superellipses/
         let (s, c) = (std::f64::consts::TAU * t).sin_cos();
-        let x = self.radius * c.signum() * c.abs().sqrt();
-        let y = self.radius * s.signum() * s.abs().sqrt();
-        (x, y)
+        let r = self.radius / (c.powi(4) + s.powi(4)).powf(0.25);
+        (r * c, r * s)
     }
 }
 
-impl From<Squircle> for BuiltInCurve {
-    fn from(s: Squircle) -> Self {
-        Self::Squircle(s)
+impl DifferentiableCurve2D for Squircle {
+    fn normal(&self, t: f64) -> (f64, f64) {
+        let (s, c) = (std::f64::consts::TAU * t).sin_cos();
+        normalize((c.powi(3), s.powi(3)))
     }
 }
 
@@ -70,32 +67,23 @@ pub trait Texture {
     fn f(&self, t: f64) -> f64;
 }
 
-enum BuiltInTexture {
-    None,
-    SinusoidalRipples(SinusoidalRipples),
-}
-
-impl Texture for BuiltInTexture {
-    fn f(&self, t: f64) -> f64 {
-        match self {
-            Self::None => 0.0,
-            Self::SinusoidalRipples(txt) => txt.f(t),
-        }
-    }
-}
-
 struct TexturedCurve<C: DifferentiableCurve2D, T: Texture> {
     base: C,
     texture: T,
 }
 
-impl<C: Curve2D, T: Texture> Curve2D for TexturedCurve<C, T> {
+impl<C: DifferentiableCurve2D, T: Texture> Curve2D for TexturedCurve<C, T> {
     fn path(&self, t: f64) -> (f64, f64) {
-        self.base.path(t)
+        let (x, y) = self.base.path(t);
+        let (nx, ny) = self.base.normal(t);
+        let f = self.texture.f(t);
+        (x + f * nx, y + f * ny)
     }
 }
 
-struct SinusoidalRipples {
+#[derive(Deserialize, Clone, Copy)]
+#[cfg_attr(feature = "wasm", derive(tsify::Tsify))]
+pub struct SinusoidalRipples {
     amplitude: f64,
     count: u64,
 }
@@ -106,46 +94,64 @@ impl Texture for SinusoidalRipples {
     }
 }
 
+pub struct NullTexture {}
+
+impl Texture for NullTexture {
+    fn f(&self, _: f64) -> f64 {
+        0.0
+    }
+}
+
 pub trait Sweep {
     fn height(&self) -> f64;
 
     /** u ∈ \[0, 1\] */
-    fn slice(&self, u: f64, interpolation: InterpolationStrategy) -> Box<dyn Curve2D + '_>;
+    fn slice(&self, u: f64) -> Box<dyn Curve2D + '_>;
 }
 
-pub enum InterpolationStrategy {
-    Linear,
+pub enum InterpolationStrategy<T: Texture> {
+    Lerp(T),
 }
 
-pub struct BuiltInSweep {
-    top: BuiltInCurve,
-    bottom: BuiltInCurve,
+pub struct TexturedSweep<
+    CT: DifferentiableCurve2D,
+    CB: DifferentiableCurve2D,
+    TT: Texture,
+    TB: Texture,
+    TI: Texture,
+> {
+    top: TexturedCurve<CT, TT>,
+    bottom: TexturedCurve<CB, TB>,
     height: f64,
+    interpolation: InterpolationStrategy<TI>,
 }
 
-impl Sweep for BuiltInSweep {
+impl<CT: DifferentiableCurve2D, CB: DifferentiableCurve2D, TT: Texture, TB: Texture, TI: Texture>
+    Sweep for TexturedSweep<CT, CB, TT, TB, TI>
+{
     fn height(&self) -> f64 {
         self.height
     }
 
-    fn slice(&self, u: f64, interpolation: InterpolationStrategy) -> Box<dyn Curve2D + '_> {
-        match interpolation {
-            InterpolationStrategy::Linear => Box::new(move |t| {
-                let (tx, ty) = self.top.path(t);
-                let (bx, by) = self.bottom.path(t);
-                let x = u * tx + (1.0 - u) * bx;
-                let y = u * ty + (1.0 - u) * by;
-                (x, y)
-            }),
+    fn slice(&self, u: f64) -> Box<dyn Curve2D + '_> {
+        match &self.interpolation {
+            InterpolationStrategy::Lerp(txt) => {
+                let offset = txt.f(u);
+                Box::new(move |t| {
+                    let (tx, ty) = self.top.path(t);
+                    let (bx, by) = self.bottom.path(t);
+                    let (x, y) = (u * tx + (1.0 - u) * bx, u * ty + (1.0 - u) * by);
+
+                    let (tnx, tny) = self.top.base.normal(t);
+                    let (bnx, bny) = self.bottom.base.normal(t);
+                    let (nx, ny) =
+                        normalize((u * tnx + (1.0 - u) * bnx, u * tny + (1.0 - u) * bny));
+
+                    (x + offset * nx, y + offset * ny)
+                })
+            }
         }
     }
-}
-
-#[derive(Deserialize)]
-#[cfg_attr(feature = "wasm", derive(tsify::Tsify))]
-pub struct Ripples {
-    amplitude: f32,
-    count: u32,
 }
 
 #[derive(Deserialize)]
@@ -156,9 +162,9 @@ pub struct Cup {
     top_radius: f64,
     height: f64,
     /** ripple around the circumference */
-    flutes: Ripples,
+    flutes: SinusoidalRipples,
     /** ripple along the height */
-    rings: Ripples,
+    rings: SinusoidalRipples,
 }
 
 pub struct Geometry {
@@ -171,18 +177,25 @@ const AROUND: u32 = 256;
 /** Samples from bottom to top */
 const UP: u32 = 64;
 
-impl From<Cup> for BuiltInSweep {
+impl From<Cup>
+    for TexturedSweep<Squircle, Circle, SinusoidalRipples, SinusoidalRipples, SinusoidalRipples>
+{
     fn from(cup: Cup) -> Self {
-        BuiltInSweep {
-            top: Circle {
-                radius: cup.top_radius,
-            }
-            .into(),
-            bottom: Circle {
-                radius: cup.bottom_radius,
-            }
-            .into(),
+        TexturedSweep {
+            top: TexturedCurve {
+                base: Squircle {
+                    radius: cup.top_radius,
+                },
+                texture: cup.flutes,
+            },
+            bottom: TexturedCurve {
+                base: Circle {
+                    radius: cup.bottom_radius,
+                },
+                texture: cup.flutes,
+            },
             height: cup.height,
+            interpolation: InterpolationStrategy::Lerp(cup.rings),
         }
     }
 }
@@ -194,7 +207,7 @@ pub fn meshify<S: Sweep>(shape: &S) -> Geometry {
     // Push one slice at height u and return the index of the first vertex
     let slice = |positions: &mut Vec<f32>, u: f32| -> u32 {
         let start = positions.len() / 3;
-        let curve = shape.slice(u as f64, InterpolationStrategy::Linear);
+        let curve = shape.slice(u as f64);
         for i in 0..AROUND {
             let t = i as f32 / AROUND as f32;
             //    y
@@ -249,69 +262,3 @@ pub fn meshify<S: Sweep>(shape: &S) -> Geometry {
 
     Geometry { positions, indices }
 }
-
-/*
-use std::f32::consts::TAU;
-
-/** Radius at height u ∈ [0, 1] and angle t ∈ [0, 1). */
-fn radius(cup: &Cup, u: f32, t: f32) -> f32 {
-    let base = cup.bottom_radius + (cup.top_radius - cup.bottom_radius) * u;
-    let flute = cup.flutes.amplitude * (TAU * cup.flutes.count as f32 * t).sin();
-    let ring = cup.rings.amplitude * (TAU * cup.rings.count as f32 * u).sin();
-    base + flute + ring
-}
-
-pub fn compile(cup: &Cup) -> Geometry {
-    let mut positions: Vec<f32> = vec![];
-    let mut indices: Vec<u32> = vec![];
-
-    // Push one ring at height u and return the index of the first vertex
-    let ring = |positions: &mut Vec<f32>, u: f32| -> u32 {
-        let start = positions.len() / 3;
-        for i in 0..AROUND {
-            let t = i as f32 / AROUND as f32;
-            let r = radius(cup, u, t);
-            let angle = TAU * t;
-            positions.extend([r * angle.cos(), cup.height * u, r * angle.sin()]);
-        }
-        start.try_into().unwrap()
-    };
-
-    // Side crust: two triangles per grid cell between rings j and j + 1
-    let mut rows: Vec<u32> = vec![];
-    for j in 0..=UP {
-        rows.push(ring(&mut positions, j as f32 / UP as f32));
-    }
-    for j in 0..UP {
-        for i in 0..AROUND {
-            let next = (i + 1) % AROUND;
-            let a = rows.get(j as usize).unwrap() + i;
-            let b = rows.get(j as usize + 1).unwrap() + i;
-            let c = rows.get(j as usize).unwrap() + next;
-            let d = rows.get(j as usize + 1).unwrap() + next;
-            // CCW means front
-            indices.extend([a, b, c, c, b, d]);
-        }
-    }
-
-    // Caps: a fan of triangles from the center
-    let mut cap = |positions: &mut Vec<f32>, u: bool| {
-        let center = (positions.len() / 3) as u32;
-        positions.extend([0.0, if u { cup.height } else { 0.0 }, 0.0]);
-        let rim = ring(positions, if u { 1.0 } else { 0.0 });
-        for i in 0..AROUND {
-            let p = rim + i;
-            let q = rim + ((i + 1) % AROUND);
-            if u {
-                indices.extend([center, q, p]);
-            } else {
-                indices.extend([center, p, q]);
-            }
-        }
-    };
-    cap(&mut positions, false);
-    cap(&mut positions, true);
-
-    Geometry { positions, indices }
-}
-*/
