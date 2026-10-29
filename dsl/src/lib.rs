@@ -55,6 +55,46 @@ impl DifferentiableCurve2D for Squircle {
     }
 }
 
+#[derive(Deserialize, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "wasm", derive(tsify::Tsify))]
+pub enum Profile {
+    Circle,
+    Squircle,
+}
+
+pub enum Base {
+    Circle(Circle),
+    Squircle(Squircle),
+}
+
+impl Base {
+    fn new(profile: Profile, radius: f64) -> Self {
+        match profile {
+            Profile::Circle => Base::Circle(Circle { radius }),
+            Profile::Squircle => Base::Squircle(Squircle { radius }),
+        }
+    }
+}
+
+impl Curve2D for Base {
+    fn path(&self, t: f64) -> (f64, f64) {
+        match self {
+            Base::Circle(c) => c.path(t),
+            Base::Squircle(s) => s.path(t),
+        }
+    }
+}
+
+impl DifferentiableCurve2D for Base {
+    fn normal(&self, t: f64) -> (f64, f64) {
+        match self {
+            Base::Circle(c) => c.normal(t),
+            Base::Squircle(s) => s.normal(t),
+        }
+    }
+}
+
 // Or maybe define a more refined Slice struct, allowing multiple interpolation strategies?
 impl<F: Fn(f64) -> (f64, f64)> Curve2D for F {
     fn path(&self, t: f64) -> (f64, f64) {
@@ -99,6 +139,14 @@ pub struct NullTexture {}
 impl Texture for NullTexture {
     fn f(&self, _: f64) -> f64 {
         0.0
+    }
+}
+
+pub struct ConstantTexture(f64);
+
+impl Texture for ConstantTexture {
+    fn f(&self, _: f64) -> f64 {
+        self.0
     }
 }
 
@@ -154,44 +202,90 @@ impl<CT: DifferentiableCurve2D, CB: DifferentiableCurve2D, TT: Texture, TB: Text
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "wasm", derive(tsify::Tsify))]
 pub struct Cup {
     bottom_radius: f64,
     top_radius: f64,
+    bottom: Profile,
+    top: Profile,
     height: f64,
     /** ripple around the circumference */
     flutes: SinusoidalRipples,
     /** ripple along the height */
     rings: SinusoidalRipples,
+    /** None means solid */
+    cavity: Option<Cavity>,
 }
+
+#[derive(Deserialize, Clone, Copy)]
+#[cfg_attr(feature = "wasm", derive(tsify::Tsify))]
+pub struct Cavity {
+    bottom: Profile,
+    top: Profile,
+    wall: f64,
+    floor: f64,
+}
+
+pub struct Carved<O: Sweep, I: Sweep> {
+    pub outer: O,
+    pub inner: I,
+    pub floor: f64,
+}
+
+pub type CupSweep =
+    TexturedSweep<Base, Base, SinusoidalRipples, SinusoidalRipples, SinusoidalRipples>;
+pub type CavitySweep = TexturedSweep<Base, Base, ConstantTexture, ConstantTexture, NullTexture>;
 
 pub struct Geometry {
     pub positions: Vec<f32>,
     pub indices: Vec<u32>,
 }
 
-/** Samples per ring */
+/** Samples per slice */
 const AROUND: u32 = 256;
 /** Samples from bottom to top */
 const UP: u32 = 64;
 
-impl From<Cup>
-    for TexturedSweep<Squircle, Circle, SinusoidalRipples, SinusoidalRipples, SinusoidalRipples>
-{
+impl Cup {
+    pub fn meshify(self) -> Geometry {
+        match self.cavity {
+            None => meshify(&CupSweep::from(self)),
+            Some(cavity) => meshify_carved(&self.carve(cavity)),
+        }
+    }
+
+    fn carve(self, cavity: Cavity) -> Carved<CupSweep, CavitySweep> {
+        let inset = cavity.wall + self.flutes.amplitude.abs() + self.rings.amplitude.abs();
+        Carved {
+            outer: CupSweep::from(self),
+            inner: TexturedSweep {
+                top: TexturedCurve {
+                    base: Base::new(cavity.top, self.top_radius),
+                    texture: ConstantTexture(-inset),
+                },
+                bottom: TexturedCurve {
+                    base: Base::new(cavity.bottom, self.bottom_radius),
+                    texture: ConstantTexture(-inset),
+                },
+                height: self.height,
+                interpolation: InterpolationStrategy::Lerp(NullTexture {}),
+            },
+            floor: cavity.floor.clamp(0.0, self.height),
+        }
+    }
+}
+
+impl From<Cup> for CupSweep {
     fn from(cup: Cup) -> Self {
         TexturedSweep {
             top: TexturedCurve {
-                base: Squircle {
-                    radius: cup.top_radius,
-                },
+                base: Base::new(cup.top, cup.top_radius),
                 texture: cup.flutes,
             },
             bottom: TexturedCurve {
-                base: Circle {
-                    radius: cup.bottom_radius,
-                },
+                base: Base::new(cup.bottom, cup.bottom_radius),
                 texture: cup.flutes,
             },
             height: cup.height,
@@ -200,16 +294,20 @@ impl From<Cup>
     }
 }
 
-pub fn meshify<S: Sweep>(shape: &S) -> Geometry {
-    let mut positions: Vec<f32> = vec![];
-    let mut indices: Vec<u32> = vec![];
+#[derive(Default)]
+struct MeshBuilder {
+    positions: Vec<f32>,
+    indices: Vec<u32>,
+}
 
-    // Push one slice at height u and return the index of the first vertex
-    let slice = |positions: &mut Vec<f32>, u: f32| -> u32 {
-        let start = positions.len() / 3;
-        let curve = shape.slice(u as f64);
+impl MeshBuilder {
+    /** Push one slice at height u and return the index of the first vertex */
+    fn slice<S: Sweep>(&mut self, shape: &S, u: f64) -> u32 {
+        let start = (self.positions.len() / 3) as u32;
+        let curve = shape.slice(u);
+        let y = (shape.height() * u) as f32;
         for i in 0..AROUND {
-            let t = i as f32 / AROUND as f32;
+            let t = i as f64 / AROUND as f64;
             //    y
             //    |
             //    |
@@ -218,47 +316,83 @@ pub fn meshify<S: Sweep>(shape: &S) -> Geometry {
             //  /
             // z
             // Should we just make Curve2D lay on the xz-plane?
-            let (x, mz) = curve.path(t as f64);
-            let y = shape.height() as f32 * u;
-            positions.extend([x as f32, y, -mz as f32]);
+            let (x, mz) = curve.path(t);
+            self.positions.extend([x as f32, y, -mz as f32]);
         }
-        start.try_into().unwrap()
-    };
-
-    // Side crust: two triangles per grid cell between rings j and j + 1
-    let mut rows: Vec<u32> = vec![];
-    for j in 0..=UP {
-        rows.push(slice(&mut positions, j as f32 / UP as f32));
+        start
     }
-    for j in 0..UP {
+
+    /** Two triangles per cell between slices a and b */
+    fn stitch(&mut self, a: u32, b: u32) {
         for i in 0..AROUND {
             let next = (i + 1) % AROUND;
-            let a = rows.get(j as usize).unwrap() + i;
-            let b = rows.get(j as usize + 1).unwrap() + i;
-            let c = rows.get(j as usize).unwrap() + next;
-            let d = rows.get(j as usize + 1).unwrap() + next;
+            let (a0, a1, b0, b1) = (a + i, a + next, b + i, b + next);
             // CCW means front
-            indices.extend([a, c, b, c, d, b]);
+            self.indices.extend([a0, a1, b0, a1, b1, b0]);
         }
     }
 
-    // Caps: a fan of triangles from the center
-    let mut cap = |positions: &mut Vec<f32>, u: bool| {
-        let center = (positions.len() / 3) as u32;
-        positions.extend([0.0, if u { shape.height() as f32 } else { 0.0 }, 0.0]);
-        let rim = slice(positions, if u { 1.0 } else { 0.0 });
-        for i in 0..AROUND {
-            let p = rim + i;
-            let q = rim + ((i + 1) % AROUND);
-            if u {
-                indices.extend([center, p, q]);
+    /** Side wall from u0 to u1; outward = false faces it toward the axis */
+    fn side<S: Sweep>(&mut self, shape: &S, u0: f64, u1: f64, outward: bool) {
+        let rows: Vec<u32> = (0..=UP)
+            .map(|j| self.slice(shape, u0 + (u1 - u0) * j as f64 / UP as f64))
+            .collect();
+        for w in rows.windows(2) {
+            if outward {
+                self.stitch(w[0], w[1]);
             } else {
-                indices.extend([center, q, p]);
+                self.stitch(w[1], w[0]);
             }
         }
-    };
-    cap(&mut positions, false);
-    cap(&mut positions, true);
+    }
 
-    Geometry { positions, indices }
+    /** A fan of triangles from the center of the slice at height u */
+    fn cap<S: Sweep>(&mut self, shape: &S, u: f64, up: bool) {
+        let center = (self.positions.len() / 3) as u32;
+        self.positions
+            .extend([0.0, (shape.height() * u) as f32, 0.0]);
+        let rim = self.slice(shape, u);
+        for i in 0..AROUND {
+            let p = rim + i;
+            let q = rim + (i + 1) % AROUND;
+            if up {
+                self.indices.extend([center, p, q]);
+            } else {
+                self.indices.extend([center, q, p]);
+            }
+        }
+    }
+}
+
+impl From<MeshBuilder> for Geometry {
+    fn from(MeshBuilder { positions, indices }: MeshBuilder) -> Self {
+        Geometry { positions, indices }
+    }
+}
+
+pub fn meshify<S: Sweep>(shape: &S) -> Geometry {
+    let mut mesh = MeshBuilder::default();
+    mesh.side(shape, 0.0, 1.0, true);
+    mesh.cap(shape, 0.0, false);
+    mesh.cap(shape, 1.0, true);
+    mesh.into()
+}
+
+pub fn meshify_carved<O: Sweep, I: Sweep>(
+    Carved {
+        outer,
+        inner,
+        floor,
+    }: &Carved<O, I>,
+) -> Geometry {
+    let u_floor = floor / inner.height();
+
+    let mut mesh = MeshBuilder::default();
+    mesh.side(outer, 0.0, 1.0, true);
+    mesh.cap(outer, 0.0, false);
+    mesh.side(inner, u_floor, 1.0, false);
+    mesh.cap(inner, u_floor, true);
+    let (o, i) = (mesh.slice(outer, 1.0), mesh.slice(inner, 1.0));
+    mesh.stitch(o, i);
+    mesh.into()
 }
