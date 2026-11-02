@@ -215,28 +215,9 @@ pub struct Cup {
     flutes: SinusoidalRipples,
     /** ripple along the height */
     rings: SinusoidalRipples,
-    /** None means solid */
-    cavity: Option<Cavity>,
 }
 
-#[derive(Deserialize, Clone, Copy)]
-#[cfg_attr(feature = "wasm", derive(tsify::Tsify))]
-pub struct Cavity {
-    bottom: Profile,
-    top: Profile,
-    wall: f64,
-    floor: f64,
-}
-
-pub struct Carved<O: Sweep, I: Sweep> {
-    pub outer: O,
-    pub inner: I,
-    pub floor: f64,
-}
-
-pub type CupSweep =
-    TexturedSweep<Base, Base, SinusoidalRipples, SinusoidalRipples, SinusoidalRipples>;
-pub type CavitySweep = TexturedSweep<Base, Base, ConstantTexture, ConstantTexture, NullTexture>;
+type CupSweep = TexturedSweep<Base, Base, SinusoidalRipples, SinusoidalRipples, SinusoidalRipples>;
 
 pub struct Geometry {
     pub positions: Vec<f32>,
@@ -250,30 +231,7 @@ const UP: u32 = 64;
 
 impl Cup {
     pub fn meshify(self) -> Geometry {
-        match self.cavity {
-            None => meshify(&CupSweep::from(self)),
-            Some(cavity) => meshify_carved(&self.carve(cavity)),
-        }
-    }
-
-    fn carve(self, cavity: Cavity) -> Carved<CupSweep, CavitySweep> {
-        let inset = cavity.wall + self.flutes.amplitude.abs() + self.rings.amplitude.abs();
-        Carved {
-            outer: CupSweep::from(self),
-            inner: TexturedSweep {
-                top: TexturedCurve {
-                    base: Base::new(cavity.top, self.top_radius),
-                    texture: ConstantTexture(-inset),
-                },
-                bottom: TexturedCurve {
-                    base: Base::new(cavity.bottom, self.bottom_radius),
-                    texture: ConstantTexture(-inset),
-                },
-                height: self.height,
-                interpolation: InterpolationStrategy::Lerp(NullTexture {}),
-            },
-            floor: cavity.floor.clamp(0.0, self.height),
-        }
+        meshify(&CupSweep::from(self))
     }
 }
 
@@ -375,24 +333,5 @@ pub fn meshify<S: Sweep>(shape: &S) -> Geometry {
     mesh.side(shape, 0.0, 1.0, true);
     mesh.cap(shape, 0.0, false);
     mesh.cap(shape, 1.0, true);
-    mesh.into()
-}
-
-pub fn meshify_carved<O: Sweep, I: Sweep>(
-    Carved {
-        outer,
-        inner,
-        floor,
-    }: &Carved<O, I>,
-) -> Geometry {
-    let u_floor = floor / inner.height();
-
-    let mut mesh = MeshBuilder::default();
-    mesh.side(outer, 0.0, 1.0, true);
-    mesh.cap(outer, 0.0, false);
-    mesh.side(inner, u_floor, 1.0, false);
-    mesh.cap(inner, u_floor, true);
-    let (o, i) = (mesh.slice(outer, 1.0), mesh.slice(inner, 1.0));
-    mesh.stitch(o, i);
     mesh.into()
 }

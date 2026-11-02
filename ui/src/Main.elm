@@ -41,11 +41,6 @@ type alias Cup =
     , fluteCount : Int
     , ringAmplitude : Float
     , ringCount : Int
-    , carved : Bool
-    , wall : Float
-    , floor : Float
-    , cavityBottom : Profile
-    , cavityTop : Profile
     }
 
 
@@ -74,11 +69,6 @@ init _ =
             , fluteCount = 23
             , ringAmplitude = 0.5
             , ringCount = 1
-            , carved = True
-            , wall = 3.1
-            , floor = 2
-            , cavityBottom = Circle
-            , cavityTop = Circle
             }
       , wireframe = False
       , panelState =
@@ -104,11 +94,6 @@ type Msg
     | CupSetFluteCount Int
     | CupSetRingAmplitude Float
     | CupSetRingCount Int
-    | CupSetCarved Bool
-    | CupSetWall Float
-    | CupSetFloor Float
-    | CupSetCavityBottom Profile
-    | CupSetCavityTop Profile
     | SetWireframe Bool
     | PanelOnDragBy Draggable.Delta
     | PanelDragMsg (Draggable.Msg ())
@@ -143,21 +128,6 @@ update msg ({ cup, panelState } as model) =
 
         CupSetRingCount n ->
             ( { model | cup = { cup | ringCount = n } }, Cmd.none )
-
-        CupSetCarved c ->
-            ( { model | cup = { cup | carved = c } }, Cmd.none )
-
-        CupSetWall w ->
-            ( { model | cup = { cup | wall = w } }, Cmd.none )
-
-        CupSetFloor f ->
-            ( { model | cup = { cup | floor = f } }, Cmd.none )
-
-        CupSetCavityBottom p ->
-            ( { model | cup = { cup | cavityBottom = p } }, Cmd.none )
-
-        CupSetCavityTop p ->
-            ( { model | cup = { cup | cavityTop = p } }, Cmd.none )
 
         SetWireframe w ->
             ( { model | wireframe = w }, Cmd.none )
@@ -216,36 +186,23 @@ view { cup, wireframe, panelState } =
             , style "transform" panelTrans
             ]
             [ div [ class "card-body gap-2" ]
-                ([ h2 (class "card-title justify-between cursor-move" :: dragHandle)
+                [ h2 (class "card-title justify-between cursor-move" :: dragHandle)
                     [ text "Configuration"
                     , span [ class "icon-[hugeicons--grip-vertical]" ] []
                     ]
-                 , profilePicker "Bottom" cup.bottom CupSetBottom
-                 , slider "Bottom radius" { min = 5, max = 40, step = 0.5 } cup.bottomRadius CupSetBottomRadius
-                 , profilePicker "Top" cup.top CupSetTop
-                 , slider "Top radius" { min = 5, max = 50, step = 0.5 } cup.topRadius CupSetTopRadius
-                 , slider "Height" { min = 5, max = 60, step = 1 } cup.height CupSetHeight
+                , profilePicker "Bottom" cup.bottom CupSetBottom
+                , slider "Bottom radius" { min = 5, max = 40, step = 0.5 } cup.bottomRadius CupSetBottomRadius
+                , profilePicker "Top" cup.top CupSetTop
+                , slider "Top radius" { min = 5, max = 50, step = 0.5 } cup.topRadius CupSetTopRadius
+                , slider "Height" { min = 5, max = 60, step = 1 } cup.height CupSetHeight
 
-                 -- min radius 5 - 2 - 2 > 0
-                 , slider "Flute depth" { min = 0, max = 2, step = 0.1 } cup.fluteAmplitude CupSetFluteAmplitude
-                 , slider "Flutes" { min = 0, max = 40, step = 1 } (toFloat cup.fluteCount) (round >> CupSetFluteCount)
-                 , slider "Ring depth" { min = 0, max = 2, step = 0.1 } cup.ringAmplitude CupSetRingAmplitude
-                 , slider "Rings" { min = 0, max = 20, step = 1 } (toFloat cup.ringCount) (round >> CupSetRingCount)
-                 , toggle "Carved" cup.carved CupSetCarved
-                 ]
-                    ++ (if cup.carved then
-                            [ -- cavity radius = radius - wall - flute depth - ring depth
-                              slider "Wall" { min = 0.5, max = 4, step = 0.1 } cup.wall CupSetWall
-                            , slider "Floor" { min = 0.5, max = 5, step = 0.5 } cup.floor CupSetFloor
-                            , profilePicker "Inside bottom" cup.cavityBottom CupSetCavityBottom
-                            , profilePicker "Inside top" cup.cavityTop CupSetCavityTop
-                            ]
-
-                        else
-                            []
-                       )
-                    ++ [ toggle "Wireframe" wireframe SetWireframe ]
-                )
+                -- min radius 5 - 2 - 2 > 0
+                , slider "Flute depth" { min = 0, max = 2, step = 0.1 } cup.fluteAmplitude CupSetFluteAmplitude
+                , slider "Flutes" { min = 0, max = 40, step = 1 } (toFloat cup.fluteCount) (round >> CupSetFluteCount)
+                , slider "Ring depth" { min = 0, max = 2, step = 0.1 } cup.ringAmplitude CupSetRingAmplitude
+                , slider "Rings" { min = 0, max = 20, step = 1 } (toFloat cup.ringCount) (round >> CupSetRingCount)
+                , toggle "Wireframe" wireframe SetWireframe
+                ]
             ]
         ]
 
@@ -331,18 +288,6 @@ encodeCup cup =
                 [ ( "amplitude", E.float cup.ringAmplitude )
                 , ( "count", E.int cup.ringCount )
                 ]
-          )
-        , ( "cavity"
-          , if cup.carved then
-                E.object
-                    [ ( "bottom", encodeProfile cup.cavityBottom )
-                    , ( "top", encodeProfile cup.cavityTop )
-                    , ( "wall", E.float cup.wall )
-                    , ( "floor", E.float cup.floor )
-                    ]
-
-            else
-                E.null
           )
         ]
 
