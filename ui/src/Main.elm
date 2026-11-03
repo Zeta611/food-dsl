@@ -24,7 +24,7 @@ main =
 
 type alias Model =
     { cup : Cup
-    , wireframe : Bool
+    , toolpath : Bool
     , panelState : PanelState
     }
 
@@ -70,7 +70,7 @@ init _ =
             , ringAmplitude = 0.5
             , ringCount = 1
             }
-      , wireframe = False
+      , toolpath = False
       , panelState =
             { pos = ( 0, 0 )
             , drag = Draggable.init
@@ -94,7 +94,7 @@ type Msg
     | CupSetFluteCount Int
     | CupSetRingAmplitude Float
     | CupSetRingCount Int
-    | SetWireframe Bool
+    | SetToolpath Bool
     | PanelOnDragBy Draggable.Delta
     | PanelDragMsg (Draggable.Msg ())
 
@@ -129,8 +129,8 @@ update msg ({ cup, panelState } as model) =
         CupSetRingCount n ->
             ( { model | cup = { cup | ringCount = n } }, Cmd.none )
 
-        SetWireframe w ->
-            ( { model | wireframe = w }, Cmd.none )
+        SetToolpath w ->
+            ( { model | toolpath = w }, Cmd.none )
 
         PanelOnDragBy ( dx, dy ) ->
             let
@@ -162,7 +162,7 @@ dragConfig =
 
 
 view : Model -> Html Msg
-view { cup, wireframe, panelState } =
+view { cup, toolpath, panelState } =
     let
         ( x, y ) =
             panelState.pos
@@ -177,7 +177,7 @@ view { cup, wireframe, panelState } =
         [ node "render-preview"
             [ class "absolute inset-0 block"
             , property "cup" (encodeCup cup)
-            , property "wireframe" (E.bool wireframe)
+            , property "toolpath" (E.bool toolpath)
             ]
             []
         , aside
@@ -201,7 +201,7 @@ view { cup, wireframe, panelState } =
                 , slider "Flutes" { min = 0, max = 40, step = 1 } (toFloat cup.fluteCount) (round >> CupSetFluteCount)
                 , slider "Ring depth" { min = 0, max = 2, step = 0.1 } cup.ringAmplitude CupSetRingAmplitude
                 , slider "Rings" { min = 0, max = 20, step = 1 } (toFloat cup.ringCount) (round >> CupSetRingCount)
-                , toggle "Wireframe" wireframe SetWireframe
+                , toggle "Toolpath" toolpath SetToolpath
                 ]
             ]
         ]

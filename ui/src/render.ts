@@ -1,7 +1,13 @@
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import * as THREE from "three/webgpu";
-import init, { type Cup, compile, type GeometryHandle } from "../../binding/pkg";
+import init, {
+  type Cup,
+  compile,
+  type GeometryHandle,
+  pathify,
+  type ToolpathHandle,
+} from "../../binding/pkg";
 
 const { memory } = await init();
 
@@ -10,8 +16,11 @@ customElements.define(
   class extends HTMLElement {
     #cup?: Cup;
     #geometryHandle?: GeometryHandle;
-    #wireframe = false;
     #mesh?: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
+
+    #toolpath = false;
+    #toolpathHandle?: ToolpathHandle;
+    #toolpathMesh?: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
 
     #applyCup() {
       if (!this.#mesh || !this.#cup) return;
@@ -33,21 +42,46 @@ customElements.define(
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
       geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+      // Rust only sends positions + indices, so calculate normals
       geometry.computeVertexNormals();
       this.#mesh.geometry.dispose();
       this.#mesh.geometry = geometry;
     }
 
-    // Elm sets these via `property "cup" ...` and `property "wireframe" ...`.
+    #updateToolpath() {
+      if (!this.#toolpathMesh) return;
+      this.#toolpathMesh.visible = this.#toolpath;
+
+      if (!this.#cup || !this.#toolpath) return;
+      const toolpathHandle = pathify(this.#cup);
+      const positions = new Float32Array(
+        memory.buffer,
+        toolpathHandle.positions_ptr(),
+        toolpathHandle.positions_len(),
+      );
+      this.#toolpathHandle?.free();
+      this.#toolpathHandle = toolpathHandle;
+
+      const points = Array.from({ length: positions.length / 3 }, (_, i) =>
+        new THREE.Vector3().fromArray(positions, 3 * i),
+      );
+      const curve = new THREE.CatmullRomCurve3(points);
+      const geometry = new THREE.TubeGeometry(curve, points.length, 0.3, 8, true);
+      this.#toolpathMesh.geometry.dispose();
+      this.#toolpathMesh.geometry = geometry;
+    }
+
+    // Elm sets these via `property "cup" ...` and `property "toolpath" ...`.
     // Elm may set them before the mesh exists, so store them first.
     set cup(c: Cup) {
       this.#cup = c;
       this.#applyCup();
+      this.#updateToolpath();
     }
 
-    set wireframe(w: boolean) {
-      this.#wireframe = w;
-      if (this.#mesh) this.#mesh.material.wireframe = w;
+    set toolpath(w: boolean) {
+      this.#toolpath = w;
+      this.#updateToolpath();
     }
 
     connectedCallback() {
@@ -87,12 +121,16 @@ customElements.define(
         roughness: 0.4,
         clearcoat: 0.2,
         clearcoatRoughness: 0.3,
-        wireframe: this.#wireframe,
+        side: THREE.DoubleSide,
       });
       this.#mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
       this.#mesh.castShadow = true;
       scene.add(this.#mesh);
       this.#applyCup();
+
+      this.#toolpathMesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
+      scene.add(this.#toolpathMesh);
+      this.#updateToolpath();
 
       const keyLight = new THREE.DirectionalLight(0xfff1e0, 4.5);
       keyLight.position.set(40, 80, 30);

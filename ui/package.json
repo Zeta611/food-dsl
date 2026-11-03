@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "build:elm": "elm make src/Main.elm --output=public/elm.js --debug",
     "build": "pnpm build:elm && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check": "biome check"
   },
   "keywords": [],
   "author": "Jay Lee <jay.lee@cs.berkeley.edu> (https://jaylee.pl/)",

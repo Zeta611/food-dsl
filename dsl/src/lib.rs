@@ -1,5 +1,7 @@
 use serde::Deserialize;
 
+// TODO: See if using glam makes life easier
+// https://github.com/bitshifter/glam-rs
 pub trait Curve2D {
     /** t ∈ \[0, 1\]  */
     fn path(&self, t: f64) -> (f64, f64);
@@ -224,6 +226,8 @@ pub struct Geometry {
     pub indices: Vec<u32>,
 }
 
+pub type Path3D = Vec<[f32; 3]>;
+
 /** Samples per slice */
 const AROUND: u32 = 256;
 /** Samples from bottom to top */
@@ -232,6 +236,10 @@ const UP: u32 = 64;
 impl Cup {
     pub fn meshify(self) -> Geometry {
         meshify(&CupSweep::from(self))
+    }
+
+    pub fn pathify(self) -> Path3D {
+        pathify(&CupSweep::from(self))
     }
 }
 
@@ -332,6 +340,48 @@ pub fn meshify<S: Sweep>(shape: &S) -> Geometry {
     let mut mesh = MeshBuilder::default();
     mesh.side(shape, 0.0, 1.0, true);
     mesh.cap(shape, 0.0, false);
-    mesh.cap(shape, 1.0, true);
+    // mesh.cap(shape, 1.0, true);
     mesh.into()
+}
+
+#[derive(Default)]
+struct PathBuilder {
+    positions: Vec<[f32; 3]>,
+}
+
+impl PathBuilder {
+    /** Push one slice at height u */
+    fn slice<S: Sweep>(&mut self, shape: &S, u: f64) {
+        let curve = shape.slice(u);
+        let y = (shape.height() * u) as f32;
+        for i in 0..AROUND {
+            let t = i as f64 / AROUND as f64;
+            //    y
+            //    |
+            //    |
+            //    |-----x
+            //   /
+            //  /
+            // z
+            let (x, mz) = curve.path(t);
+            self.positions.push([x as f32, y, -mz as f32]);
+        }
+    }
+
+    /** Side wall from u0 to u1 */
+    fn side<S: Sweep>(&mut self, shape: &S, u0: f64, u1: f64) {
+        (0..=UP).for_each(|j| self.slice(shape, u0 + (u1 - u0) * j as f64 / UP as f64));
+    }
+}
+
+impl From<PathBuilder> for Path3D {
+    fn from(PathBuilder { positions }: PathBuilder) -> Self {
+        positions
+    }
+}
+
+pub fn pathify<S: Sweep>(shape: &S) -> Path3D {
+    let mut path = PathBuilder::default();
+    path.side(shape, 0.0, 1.0);
+    path.into()
 }
