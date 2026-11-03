@@ -8,7 +8,7 @@
     "dev:elm": "elm-live src/Main.elm --no-server -- --output=public/elm.js --debug",
     "dev:vite": "vite",
     "typecheck": "tsc --noEmit",
-    "build:elm": "elm make src/Main.elm --output=public/elm.js --debug",
+    "build:elm": "elm make src/Main.elm --optimize --output=public/elm.js",
     "build": "pnpm build:elm && vite build",
     "preview": "vite preview",
     "check": "biome check"
