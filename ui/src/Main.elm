@@ -25,6 +25,8 @@ main =
 type alias Model =
     { cup : Cup
     , toolpath : Bool
+    , infill : Maybe Lattice
+    , spacing : Float
     , panelState : PanelState
     }
 
@@ -51,6 +53,13 @@ type Profile
     | Squircle
 
 
+{-| Must match `LatticePreset` in `dsl/src/lib.rs`
+-}
+type Lattice
+    = Grid
+    | Honeycomb
+
+
 type alias PanelState =
     { pos : ( Float, Float )
     , drag : Draggable.State ()
@@ -71,6 +80,8 @@ init _ =
             , ringCount = 1
             }
       , toolpath = False
+      , infill = Nothing
+      , spacing = 2
       , panelState =
             { pos = ( 0, 0 )
             , drag = Draggable.init
@@ -95,6 +106,8 @@ type Msg
     | CupSetRingAmplitude Float
     | CupSetRingCount Int
     | SetToolpath Bool
+    | SetInfill (Maybe Lattice)
+    | SetSpacing Float
     | PanelOnDragBy Draggable.Delta
     | PanelDragMsg (Draggable.Msg ())
 
@@ -132,6 +145,12 @@ update msg ({ cup, panelState } as model) =
         SetToolpath w ->
             ( { model | toolpath = w }, Cmd.none )
 
+        SetInfill l ->
+            ( { model | infill = l }, Cmd.none )
+
+        SetSpacing s ->
+            ( { model | spacing = s }, Cmd.none )
+
         PanelOnDragBy ( dx, dy ) ->
             let
                 ( x, y ) =
@@ -162,7 +181,7 @@ dragConfig =
 
 
 view : Model -> Html Msg
-view { cup, toolpath, panelState } =
+view { cup, toolpath, infill, spacing, panelState } =
     let
         ( x, y ) =
             panelState.pos
@@ -178,6 +197,11 @@ view { cup, toolpath, panelState } =
             [ class "absolute inset-0 block"
             , property "cup" (encodeCup cup)
             , property "toolpath" (E.bool toolpath)
+            , property "lattice"
+                (infill
+                    |> Maybe.map (encodeLattice spacing)
+                    |> Maybe.withDefault E.null
+                )
             ]
             []
         , aside
@@ -202,6 +226,8 @@ view { cup, toolpath, panelState } =
                 , slider "Ring depth" { min = 0, max = 2, step = 0.1 } cup.ringAmplitude CupSetRingAmplitude
                 , slider "Rings" { min = 0, max = 20, step = 1 } (toFloat cup.ringCount) (round >> CupSetRingCount)
                 , toggle "Toolpath" toolpath SetToolpath
+                , latticePicker "Infill" infill SetInfill
+                , slider "Spacing" { min = 0.5, max = 5, step = 0.1 } spacing SetSpacing
                 ]
             ]
         ]
@@ -267,6 +293,28 @@ profilePicker name current toMsg =
         ]
 
 
+latticePicker : String -> Maybe Lattice -> (Maybe Lattice -> Msg) -> Html Msg
+latticePicker name current toMsg =
+    let
+        option lattice caption =
+            button
+                [ type_ "button"
+                , class "btn btn-xs join-item"
+                , classList [ ( "btn-active", lattice == current ) ]
+                , onClick (toMsg lattice)
+                ]
+                [ text caption ]
+    in
+    div [ class "flex items-center justify-between text-sm" ]
+        [ text name
+        , div [ class "join" ]
+            [ option Nothing "None"
+            , option (Just Grid) "Grid"
+            , option (Just Honeycomb) "Honeycomb"
+            ]
+        ]
+
+
 {-| Must match `Cup` in `dsl/src/lib.rs`
 -}
 encodeCup : Cup -> E.Value
@@ -296,10 +344,24 @@ encodeProfile : Profile -> E.Value
 encodeProfile profile =
     case profile of
         Circle ->
-            E.string "circle"
+            E.string "Circle"
 
         Squircle ->
-            E.string "squircle"
+            E.string "Squircle"
+
+
+encodeLattice : Float -> Lattice -> E.Value
+encodeLattice spacing lattice =
+    let
+        tag =
+            case lattice of
+                Grid ->
+                    "Grid"
+
+                Honeycomb ->
+                    "Honeycomb"
+    in
+    E.object [ ( tag, E.object [ ( "spacing", E.float spacing ) ] ) ]
 
 
 

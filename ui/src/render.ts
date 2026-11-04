@@ -3,41 +3,32 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import * as THREE from "three/webgpu";
 import init, {
   type Cup,
-  compile,
-  type GeometryHandle,
-  pathify,
-  type ToolpathHandle,
+  infill_mesh,
+  type LatticePreset,
+  shell_mesh,
+  shell_path,
 } from "../../binding/pkg";
 
-const { memory } = await init();
+await init();
 
 customElements.define(
   "render-preview",
   class extends HTMLElement {
     #cup?: Cup;
-    #geometryHandle?: GeometryHandle;
     #mesh?: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
 
     #toolpath = false;
-    #toolpathHandle?: ToolpathHandle;
     #toolpathMesh?: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
+
+    #lattice: LatticePreset | null = null;
+    #infillMesh?: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
 
     #applyCup() {
       if (!this.#mesh || !this.#cup) return;
 
-      const geometryHandle = compile(this.#cup);
-      const positions = new Float32Array(
-        memory.buffer,
-        geometryHandle.positions_ptr(),
-        geometryHandle.positions_len(),
-      );
-      const indices = new Uint32Array(
-        memory.buffer,
-        geometryHandle.indices_ptr(),
-        geometryHandle.indices_len(),
-      );
-      this.#geometryHandle?.free();
-      this.#geometryHandle = geometryHandle;
+      const mesh = shell_mesh(this.#cup);
+      const { positions, indices } = mesh;
+      mesh.free();
 
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
@@ -53,14 +44,7 @@ customElements.define(
       this.#toolpathMesh.visible = this.#toolpath;
 
       if (!this.#cup || !this.#toolpath) return;
-      const toolpathHandle = pathify(this.#cup);
-      const positions = new Float32Array(
-        memory.buffer,
-        toolpathHandle.positions_ptr(),
-        toolpathHandle.positions_len(),
-      );
-      this.#toolpathHandle?.free();
-      this.#toolpathHandle = toolpathHandle;
+      const positions = shell_path(this.#cup);
 
       const points = Array.from({ length: positions.length / 3 }, (_, i) =>
         new THREE.Vector3().fromArray(positions, 3 * i),
@@ -71,17 +55,40 @@ customElements.define(
       this.#toolpathMesh.geometry = geometry;
     }
 
-    // Elm sets these via `property "cup" ...` and `property "toolpath" ...`.
+    #updateInfill() {
+      if (!this.#infillMesh) return;
+      this.#infillMesh.visible = this.#lattice !== null;
+
+      if (!this.#cup || !this.#lattice) return;
+      const mesh = infill_mesh(this.#cup, this.#lattice);
+      const { positions, indices } = mesh;
+      mesh.free();
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+      geometry.computeVertexNormals();
+      this.#infillMesh.geometry.dispose();
+      this.#infillMesh.geometry = geometry;
+    }
+
+    // Elm sets these via `property "cup" ...`, `property "toolpath" ...`, etc.
     // Elm may set them before the mesh exists, so store them first.
     set cup(c: Cup) {
       this.#cup = c;
       this.#applyCup();
       this.#updateToolpath();
+      this.#updateInfill();
     }
 
     set toolpath(w: boolean) {
       this.#toolpath = w;
       this.#updateToolpath();
+    }
+
+    set lattice(l: LatticePreset | null) {
+      this.#lattice = l;
+      this.#updateInfill();
     }
 
     connectedCallback() {
@@ -131,6 +138,11 @@ customElements.define(
       this.#toolpathMesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
       scene.add(this.#toolpathMesh);
       this.#updateToolpath();
+
+      this.#infillMesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
+      this.#infillMesh.castShadow = true;
+      scene.add(this.#infillMesh);
+      this.#updateInfill();
 
       const keyLight = new THREE.DirectionalLight(0xfff1e0, 4.5);
       keyLight.position.set(40, 80, 30);

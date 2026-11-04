@@ -1,71 +1,46 @@
 mod utils;
 
-use fldsmdfr::{Cup, Geometry, Path3D};
+use fldsmdfr::{Cup, Geometry};
+use js_sys::{Float32Array, Uint32Array};
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen]
-pub struct GeometryHandle {
-    positions: Vec<f32>,
-    indices: Vec<u32>,
+#[wasm_bindgen(getter_with_clone)]
+pub struct Mesh {
+    pub positions: Float32Array,
+    pub indices: Uint32Array,
 }
 
-#[wasm_bindgen]
-impl GeometryHandle {
-    pub fn positions_len(&self) -> usize {
-        self.positions.len()
-    }
-
-    pub fn indices_len(&self) -> usize {
-        self.indices.len()
-    }
-
-    pub fn positions_ptr(&self) -> *const f32 {
-        self.positions.as_ptr()
-    }
-
-    pub fn indices_ptr(&self) -> *const u32 {
-        self.indices.as_ptr()
-    }
-}
-
-impl From<Geometry> for GeometryHandle {
+impl From<Geometry> for Mesh {
     fn from(Geometry { positions, indices }: Geometry) -> Self {
-        GeometryHandle { positions, indices }
-    }
-}
-
-#[wasm_bindgen]
-pub struct ToolpathHandle {
-    positions: Vec<f32>,
-}
-
-#[wasm_bindgen]
-impl ToolpathHandle {
-    pub fn positions_len(&self) -> usize {
-        self.positions.len()
-    }
-
-    pub fn positions_ptr(&self) -> *const f32 {
-        self.positions.as_ptr()
-    }
-}
-
-impl From<Path3D> for ToolpathHandle {
-    fn from(p: Path3D) -> Self {
-        ToolpathHandle {
-            positions: p.into_flattened(),
+        Mesh {
+            positions: Float32Array::from(&positions[..]),
+            indices: Uint32Array::from(&indices[..]),
         }
     }
 }
 
 #[wasm_bindgen]
-pub fn compile(cup: JsValue) -> Result<GeometryHandle, JsError> {
+pub fn shell_mesh(cup: JsValue) -> Result<Mesh, JsError> {
     utils::set_panic_hook();
-    Ok(serde_wasm_bindgen::from_value::<Cup>(cup)?.meshify().into())
+    Ok(serde_wasm_bindgen::from_value::<Cup>(cup)?
+        .shell_mesh()
+        .into())
 }
 
 #[wasm_bindgen]
-pub fn pathify(cup: JsValue) -> Result<ToolpathHandle, JsError> {
+pub fn shell_path(cup: JsValue) -> Result<Float32Array, JsError> {
     utils::set_panic_hook();
-    Ok(serde_wasm_bindgen::from_value::<Cup>(cup)?.pathify().into())
+    Ok(Float32Array::from(
+        serde_wasm_bindgen::from_value::<Cup>(cup)?
+            .shell_path()
+            .as_flattened(),
+    ))
+}
+
+#[wasm_bindgen]
+pub fn infill_mesh(cup: JsValue, lattice: JsValue) -> Result<Mesh, JsError> {
+    utils::set_panic_hook();
+    Ok(serde_wasm_bindgen::from_value::<Cup>(cup)?
+        .infill_mesh(&serde_wasm_bindgen::from_value(lattice)?)
+        .into())
 }
