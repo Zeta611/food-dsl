@@ -1,7 +1,7 @@
-use geo::algorithm::line_measures::{Euclidean, InterpolatableLine};
+use geo::algorithm::line_measures::{Distance, Euclidean, InterpolatableLine};
 use geo::{
-    BooleanOps, BoundingRect, Coord, Line, LineString, LinesIter, MultiLineString, MultiPoint,
-    Polygon, Rect, Translate, Vector2DOps, Winding, coord, line_string, point,
+    BooleanOps, BoundingRect, Contains, Coord, Line, LineString, LinesIter, MultiLineString,
+    MultiPoint, Point, Polygon, Rect, Translate, Vector2DOps, Winding, coord, line_string, point,
 };
 use serde::Deserialize;
 use std::f64::consts::TAU;
@@ -378,6 +378,46 @@ fn walls<L: Lattice>(lattice: &L, window: Rect) -> Vec<Line> {
         .collect()
 }
 
+/// Two circles around `center` with a polygon's boundary between them.
+struct BoundaryBand {
+    center: Coord,
+    inner: f64,
+    outer: f64,
+}
+
+impl BoundaryBand {
+    fn new(polygon: &Polygon, center: Coord) -> Self {
+        let boundary = polygon.exterior();
+        let inner = if polygon.contains(&center) {
+            Euclidean.distance(&Point(center), boundary)
+        } else {
+            0.0
+        };
+        let outer = boundary
+            .coords()
+            .map(|&c| Euclidean.distance(center, c))
+            .fold(0.0, f64::max);
+        BoundaryBand {
+            center,
+            inner,
+            outer,
+        }
+    }
+
+    /// In the inner disc, hence in the polygon
+    fn encloses(&self, line: &Line) -> bool {
+        // NOTE: use hand-rolled versions w/o sqrt if this is slow
+        Euclidean.distance(self.center, line.start) < self.inner
+            && Euclidean.distance(self.center, line.end) < self.inner
+    }
+
+    /// Past the outer circle, hence out of the polygon
+    fn excludes(&self, line: &Line) -> bool {
+        // NOTE: use hand-rolled versions w/o sqrt if this is slow
+        Euclidean.distance(self.center, line) >= self.outer
+    }
+}
+
 /// Lattice walls inside a closed curve, clipped against its sampled polygon
 pub fn fill<L: Lattice>(lattice: &L, boundary: &dyn Curve2D) -> Vec<Line> {
     let mut sampled_boundary: LineString = (0..AROUND)
@@ -389,14 +429,19 @@ pub fn fill<L: Lattice>(lattice: &L, boundary: &dyn Curve2D) -> Vec<Line> {
         return vec![];
     };
 
-    let walls: MultiLineString = walls(lattice, window)
+    let polygon = Polygon::new(sampled_boundary, vec![]);
+    let band = BoundaryBand::new(&polygon, window.center());
+
+    let (mut inside, undecided): (Vec<Line>, Vec<Line>) = walls(lattice, window)
         .iter()
-        .map(|line| LineString::from(line))
+        .partition(|wall| band.encloses(wall));
+    let crossing: MultiLineString = undecided
+        .iter()
+        .filter(|wall| !band.excludes(wall))
         .collect();
-    Polygon::new(sampled_boundary, vec![])
-        .clip(&walls, false)
-        .lines_iter()
-        .collect()
+
+    inside.extend(polygon.clip(&crossing, false).lines_iter());
+    inside
 }
 
 pub struct Geometry {
