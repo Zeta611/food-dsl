@@ -1,20 +1,26 @@
+use geo::algorithm::line_measures::{Euclidean, InterpolatableLine};
+use geo::{
+    BooleanOps, BoundingRect, Coord, Line, LineString, LinesIter, MultiLineString, MultiPoint,
+    Polygon, Rect, Translate, Vector2DOps, Winding, coord, line_string, point,
+};
 use serde::Deserialize;
+use std::f64::consts::TAU;
+use std::fmt::Debug;
+use std::ops::RangeInclusive;
 
-// TODO: See if using glam makes life easier
-// https://github.com/bitshifter/glam-rs
 pub trait Curve2D {
-    /** t ∈ \[0, 1\]  */
-    fn path(&self, t: f64) -> (f64, f64);
+    /// t ∈ \[0, 1\]
+    fn path(&self, t: f64) -> Coord;
 }
 
 pub trait DifferentiableCurve2D: Curve2D {
-    /** ⟨ẏ(t), −ẋ(t)⟩ / ‖ċ(t)‖ at t ∈ \[0, 1\] */
-    fn normal(&self, t: f64) -> (f64, f64);
+    /// ⟨ẏ(t), −ẋ(t)⟩ / ‖ċ(t)‖ at t ∈ \[0, 1\]
+    fn normal(&self, t: f64) -> Coord;
 }
 
-fn normalize((x, y): (f64, f64)) -> (f64, f64) {
-    let len = x.hypot(y);
-    (x / len, y / len)
+#[track_caller]
+fn check_range<T: PartialOrd + Debug>(x: T, range: RangeInclusive<T>) {
+    debug_assert!(range.contains(&x), "expected {x:?} to be in {range:?}");
 }
 
 pub struct Circle {
@@ -22,16 +28,19 @@ pub struct Circle {
 }
 
 impl Curve2D for Circle {
-    fn path(self: &Circle, t: f64) -> (f64, f64) {
-        let (s, c) = (std::f64::consts::TAU * t).sin_cos();
-        (self.radius * c, self.radius * s)
+    fn path(self: &Circle, t: f64) -> Coord {
+        check_range(t, 0.0..=1.0);
+        let (s, c) = (TAU * t).sin_cos();
+        let r = self.radius;
+        coord!(x: r * c, y: r * s)
     }
 }
 
 impl DifferentiableCurve2D for Circle {
-    fn normal(&self, t: f64) -> (f64, f64) {
-        let (s, c) = (std::f64::consts::TAU * t).sin_cos();
-        (c, s)
+    fn normal(&self, t: f64) -> Coord {
+        check_range(t, 0.0..=1.0);
+        let (s, c) = (TAU * t).sin_cos();
+        coord!(x: c, y: s)
     }
 }
 
@@ -43,17 +52,22 @@ pub struct Squircle {
 
 impl Curve2D for Squircle {
     // https://en.wikipedia.org/wiki/Squircle in polar form
-    fn path(&self, t: f64) -> (f64, f64) {
-        let (s, c) = (std::f64::consts::TAU * t).sin_cos();
+    fn path(&self, t: f64) -> Coord {
+        check_range(t, 0.0..=1.0);
+        let (s, c) = (TAU * t).sin_cos();
         let r = self.radius / (c.powi(4) + s.powi(4)).powf(0.25);
-        (r * c, r * s)
+        coord!(x: r * c, y: r * s)
     }
 }
 
 impl DifferentiableCurve2D for Squircle {
-    fn normal(&self, t: f64) -> (f64, f64) {
-        let (s, c) = (std::f64::consts::TAU * t).sin_cos();
-        normalize((c.powi(3), s.powi(3)))
+    fn normal(&self, t: f64) -> Coord {
+        check_range(t, 0.0..=1.0);
+        let (s, c) = (TAU * t).sin_cos();
+        let Some(n) = coord!(x: c.powi(3), y: s.powi(3)).try_normalize() else {
+            panic!("Differentiable curve failed to calculate a normal vector for ({s}, {c})")
+        };
+        n
     }
 }
 
@@ -81,7 +95,8 @@ impl Base {
 }
 
 impl Curve2D for Base {
-    fn path(&self, t: f64) -> (f64, f64) {
+    fn path(&self, t: f64) -> Coord {
+        check_range(t, 0.0..=1.0);
         match self {
             Base::Circle(c) => c.path(t),
             Base::Squircle(s) => s.path(t),
@@ -90,7 +105,8 @@ impl Curve2D for Base {
 }
 
 impl DifferentiableCurve2D for Base {
-    fn normal(&self, t: f64) -> (f64, f64) {
+    fn normal(&self, t: f64) -> Coord {
+        check_range(t, 0.0..=1.0);
         match self {
             Base::Circle(c) => c.normal(t),
             Base::Squircle(s) => s.normal(t),
@@ -99,14 +115,15 @@ impl DifferentiableCurve2D for Base {
 }
 
 // Or maybe define a more refined Slice struct, allowing multiple interpolation strategies?
-impl<F: Fn(f64) -> (f64, f64)> Curve2D for F {
-    fn path(&self, t: f64) -> (f64, f64) {
+impl<F: Fn(f64) -> Coord> Curve2D for F {
+    fn path(&self, t: f64) -> Coord {
+        check_range(t, 0.0..=1.0);
         self(t)
     }
 }
 
 pub trait Texture {
-    /** t ∈ \[0, 1\]  */
+    /// t ∈ \[0, 1\]
     fn f(&self, t: f64) -> f64;
 }
 
@@ -116,11 +133,9 @@ struct TexturedCurve<C: DifferentiableCurve2D, T: Texture> {
 }
 
 impl<C: DifferentiableCurve2D, T: Texture> Curve2D for TexturedCurve<C, T> {
-    fn path(&self, t: f64) -> (f64, f64) {
-        let (x, y) = self.base.path(t);
-        let (nx, ny) = self.base.normal(t);
-        let f = self.texture.f(t);
-        (x + f * nx, y + f * ny)
+    fn path(&self, t: f64) -> Coord {
+        check_range(t, 0.0..=1.0);
+        self.base.path(t) + self.base.normal(t) * self.texture.f(t)
     }
 }
 
@@ -133,7 +148,8 @@ pub struct SinusoidalRipples {
 
 impl Texture for SinusoidalRipples {
     fn f(&self, t: f64) -> f64 {
-        self.amplitude * (std::f64::consts::TAU * self.count as f64 * t).sin()
+        check_range(t, 0.0..=1.0);
+        self.amplitude * (TAU * self.count as f64 * t).sin()
     }
 }
 
@@ -156,7 +172,7 @@ impl Texture for ConstantTexture {
 pub trait Sweep {
     fn height(&self) -> f64;
 
-    /** u ∈ \[0, 1\] */
+    /// u ∈ \[0, 1\]
     fn slice(&self, u: f64) -> Box<dyn Curve2D + '_>;
 }
 
@@ -185,20 +201,26 @@ impl<CT: DifferentiableCurve2D, CB: DifferentiableCurve2D, TT: Texture, TB: Text
     }
 
     fn slice(&self, u: f64) -> Box<dyn Curve2D + '_> {
+        check_range(u, 0.0..=1.0);
         match &self.interpolation {
             InterpolationStrategy::Lerp(txt) => {
                 let offset = txt.f(u);
                 Box::new(move |t| {
-                    let (tx, ty) = self.top.path(t);
-                    let (bx, by) = self.bottom.path(t);
-                    let (x, y) = (u * tx + (1.0 - u) * bx, u * ty + (1.0 - u) * by);
+                    let line = Line::new(self.bottom.path(t), self.top.path(t));
+                    let p = line.point_at_ratio_from_start(&Euclidean, u).0;
 
-                    let (tnx, tny) = self.top.base.normal(t);
-                    let (bnx, bny) = self.bottom.base.normal(t);
-                    let (nx, ny) =
-                        normalize((u * tnx + (1.0 - u) * bnx, u * tny + (1.0 - u) * bny));
+                    // Calculate normal vectors from the bases of the textured curves
+                    let normals = Line::new(self.bottom.base.normal(t), self.top.base.normal(t));
+                    // Lerped normal vector at `u`
+                    let n = normals.point_at_ratio_from_start(&Euclidean, u).0;
+                    let Some(n) = n.try_normalize() else {
+                        // when `self.bottom.base.normal(t) + self.top.base.normal(t) = (0, 0)`
+                        panic!(
+                            "The top and the bottom normal vectors point to the opposite directions at t = {t}, u = {u}: {n:?}"
+                        )
+                    };
 
-                    (x + offset * nx, y + offset * ny)
+                    p + n * offset
                 })
             }
         }
@@ -214,9 +236,9 @@ pub struct Cup {
     bottom: Profile,
     top: Profile,
     height: f64,
-    /** ripple around the circumference */
+    /// ripple around the circumference
     flutes: SinusoidalRipples,
-    /** ripple along the height */
+    /// ripple along the height
     rings: SinusoidalRipples,
 }
 
@@ -241,102 +263,88 @@ pub enum LatticePreset {
     Honeycomb(Honeycomb),
 }
 
-#[derive(Clone, Copy)]
-pub struct Rect {
-    pub min: (f64, f64),
-    pub max: (f64, f64),
-}
-
-impl Rect {
-    /** Smallest rectangle containing every point */
-    fn bounding(points: &[(f64, f64)]) -> Self {
-        let empty = Rect {
-            min: (f64::INFINITY, f64::INFINITY),
-            max: (f64::NEG_INFINITY, f64::NEG_INFINITY),
-        };
-        points
-            .iter()
-            .fold(empty, |Rect { min, max }, &(x, y)| Rect {
-                min: (min.0.min(x), min.1.min(y)),
-                max: (max.0.max(x), max.1.max(y)),
-            })
-    }
-}
-
 pub trait Lattice {
-    /** Centers of cells overlapping with `window` */
-    fn centers(&self, window: Rect) -> Vec<(f64, f64)>;
+    /// Centers of cells overlapping with `window`
+    fn centers(&self, window: Rect) -> MultiPoint; // Just Vec<Coord>?
 
-    /** Corners of the "seed" cell at the origin (CCW) */
-    fn seed(&self) -> Vec<(f64, f64)>;
+    /// Corners of the "seed" cell at the origin (closed, CCW)
+    fn seed(&self) -> LineString; // Or Polygon?
 }
 
-/** k's such that lo ≤ k * step ≤ hi, padded by one on each side */
-fn steps(lo: f64, hi: f64, step: f64) -> std::ops::RangeInclusive<i64> {
+/// k's such that lo ≤ k * step ≤ hi, padded by one on each side
+fn steps(lo: f64, hi: f64, step: f64) -> RangeInclusive<i64> {
     (((lo / step).floor() as i64) - 1)..=(((hi / step).ceil() as i64) + 1)
 }
 
 impl Lattice for Grid {
-    fn centers(&self, window: Rect) -> Vec<(f64, f64)> {
+    fn centers(&self, window: Rect) -> MultiPoint {
         let s = self.spacing;
-        let xs = steps(window.min.0, window.max.0, s);
-        let ys = steps(window.min.1, window.max.1, s);
+        let xs = steps(window.min().x, window.max().x, s);
+        let ys = steps(window.min().y, window.max().y, s);
 
         let mut out = vec![];
         for j in ys {
             for i in xs.clone() {
-                out.push((i as f64 * s, j as f64 * s));
+                out.push(point!(x: i as f64, y: j as f64) * s);
             }
         }
-        out
+        out.into()
     }
 
-    fn seed(&self) -> Vec<(f64, f64)> {
+    fn seed(&self) -> LineString {
         let h = self.spacing / 2.0;
-        vec![(h, -h), (h, h), (-h, h), (-h, -h)]
+        line_string![
+            (x: h, y: -h),
+            (x: h, y: h),
+            (x: -h, y: h),
+            (x: -h, y: -h),
+            (x: h, y: -h),
+        ]
     }
 }
 
 impl Lattice for Honeycomb {
-    fn centers(&self, window: Rect) -> Vec<(f64, f64)> {
+    fn centers(&self, window: Rect) -> MultiPoint {
         let s = self.spacing;
         // h = (3/2)r = (√3/2)s where r is the length of the edge (s/√3)
         let h = s * 3f64.sqrt() / 2.0;
-        let xs = steps(window.min.0, window.max.0, s);
-        let ys = steps(window.min.1, window.max.1, h);
+        let xs = steps(window.min().x, window.max().x, s);
+        let ys = steps(window.min().y, window.max().y, h);
 
         let mut out = vec![];
         for j in ys {
             let shift = if j % 2 != 0 { s / 2.0 } else { 0.0 };
             for i in xs.clone() {
-                out.push((i as f64 * s + shift, j as f64 * h));
+                out.push(point!(x: i as f64 * s + shift, y: j as f64 * h));
             }
         }
-        out
+        out.into()
     }
 
-    fn seed(&self) -> Vec<(f64, f64)> {
+    fn seed(&self) -> LineString {
         use std::f64::consts::{FRAC_PI_3, FRAC_PI_6};
         // s/√3 (length of the edge)
         let r = self.spacing / 3f64.sqrt();
-        (0..6)
+        let mut edges: LineString = (0..6)
             .map(|k| {
                 let (s, c) = (FRAC_PI_6 + k as f64 * FRAC_PI_3).sin_cos();
-                (r * c, r * s)
+                point!(x: c, y: s) * r
             })
-            .collect()
+            .collect();
+        edges.close();
+        edges
     }
 }
 
 impl Lattice for LatticePreset {
-    fn centers(&self, window: Rect) -> Vec<(f64, f64)> {
+    fn centers(&self, window: Rect) -> MultiPoint {
         match self {
             LatticePreset::Grid(g) => g.centers(window),
             LatticePreset::Honeycomb(h) => h.centers(window),
         }
     }
 
-    fn seed(&self) -> Vec<(f64, f64)> {
+    fn seed(&self) -> LineString {
         match self {
             LatticePreset::Grid(g) => g.seed(),
             LatticePreset::Honeycomb(h) => h.seed(),
@@ -344,103 +352,51 @@ impl Lattice for LatticePreset {
     }
 }
 
-pub type Segment = ((f64, f64), (f64, f64));
-
-/** Cell walls covering `window` */
-fn walls<L: Lattice>(lattice: &L, window: Rect) -> Vec<Segment> {
+/// Cell walls covering `window`
+fn walls<L: Lattice>(lattice: &L, window: Rect) -> Vec<Line> {
     let seed = lattice.seed();
-    let n = seed.len();
+    debug_assert!(
+        seed.is_closed() && seed.is_ccw(),
+        "Seed should be closed and CCW"
+    );
 
     // Only count a shared wall once
-    let half: Vec<Segment> = (0..n)
-        .map(|k| (seed[k], seed[(k + 1) % n]))
-        .filter(|&((ax, ay), (bx, by))| {
-            let (dx, dy) = (bx - ax, by - ay);
+    let half: Vec<Line<f64>> = seed
+        .lines()
+        .filter(|line| {
+            let (dx, dy) = line.delta().x_y();
             let eps = 1e-9 * dx.hypot(dy);
             // rightward || straight-up
             dx > eps || (dx.abs() <= eps && dy > 0.0)
         })
         .collect();
 
-    let mut out = vec![];
-    for (cx, cy) in lattice.centers(window) {
-        for ((ax, ay), (bx, by)) in &half {
-            out.push(((cx + ax, cy + ay), (cx + bx, cy + by)))
-        }
-    }
-    out
-}
-
-fn cross((ax, ay): (f64, f64), (bx, by): (f64, f64)) -> f64 {
-    ax * by - ay * bx
-}
-
-/** +x crosses the boundary an odd number of times
- * https://en.wikipedia.org/wiki/Point_in_polygon#Ray_casting_algorithm */
-fn inside(polygon: &[(f64, f64)], (px, py): (f64, f64)) -> bool {
-    let n = polygon.len();
-    let crossings = (0..n)
-        .filter(|&k| {
-            let (ax, ay) = polygon[k];
-            let (bx, by) = polygon[(k + 1) % n];
-            (ay > py) != (by > py) && px < ax + (py - ay) / (by - ay) * (bx - ax)
-        })
-        .count();
-    crossings % 2 == 1
-}
-
-/** Pieces of edge `p`-`q` inside `polygon` */
-fn clip(polygon: &[(f64, f64)], (p, q): Segment) -> Vec<Segment> {
-    let r = (q.0 - p.0, q.1 - p.1);
-    // at(0) = p, at(1) = q
-    let at = |t: f64| (p.0 + t * r.0, p.1 + t * r.1);
-
-    // Parameters t where p + tr meets the edges, plus both ends
-    let mut ts = vec![0.0, 1.0];
-    let n = polygon.len();
-    for k in 0..n {
-        let a = polygon[k];
-        let b = polygon[(k + 1) % n];
-        let e = (b.0 - a.0, b.1 - a.1);
-        let denom = cross(r, e);
-        if denom == 0.0 {
-            // parallel (cross product is zero)
-            continue;
-        }
-        // Cramer's rule
-        //   p + tr = a + ue
-        // ⇔ [r -e][t u]ᵗ = [a-p]
-        let ap = (a.0 - p.0, a.1 - p.1);
-        let (t, u) = (cross(ap, e) / denom, cross(ap, r) / denom);
-        if (0.0..=1.0).contains(&t) && (0.0..=1.0).contains(&u) {
-            ts.push(t);
-        }
-    }
-
-    ts.sort_by(f64::total_cmp); // [0.0, ..., 1.0]
-    // Between consecutive crossings the segment is wholly in or out
-    ts.windows(2)
-        /* filter out the zero-length cut when the intersection occurs at the vertex */
-        .filter(|w| w[1] > w[0])
-        .filter(|w| inside(polygon, at((w[0] + w[1]) / 2.0)))
-        .map(|w| (at(w[0]), at(w[1])))
+    lattice
+        .centers(window)
+        .iter()
+        .flat_map(|c| half.iter().map(|edge| edge.translate(c.x(), c.y())))
         .collect()
 }
 
-/** Lattice walls inside a closed polygon */
-fn fill_polygon<L: Lattice>(lattice: &L, polygon: &[(f64, f64)]) -> Vec<Segment> {
-    walls(lattice, Rect::bounding(polygon))
-        .into_iter()
-        .flat_map(|wall| clip(polygon, wall))
-        .collect()
-}
-
-/** Lattice walls inside a closed curve, clipped against its sampled polygon */
-pub fn fill<L: Lattice>(lattice: &L, region: &dyn Curve2D) -> Vec<Segment> {
-    let sampled_region: Vec<(f64, f64)> = (0..AROUND)
-        .map(|i| region.path(i as f64 / AROUND as f64))
+/// Lattice walls inside a closed curve, clipped against its sampled polygon
+pub fn fill<L: Lattice>(lattice: &L, boundary: &dyn Curve2D) -> Vec<Line> {
+    let mut sampled_boundary: LineString = (0..AROUND)
+        .map(|i| boundary.path(i as f64 / AROUND as f64))
         .collect();
-    fill_polygon(lattice, &sampled_region)
+    sampled_boundary.close();
+
+    let Some(window) = sampled_boundary.bounding_rect() else {
+        return vec![];
+    };
+
+    let walls: MultiLineString = walls(lattice, window)
+        .iter()
+        .map(|line| LineString::from(line))
+        .collect();
+    Polygon::new(sampled_boundary, vec![])
+        .clip(&walls, false)
+        .lines_iter()
+        .collect()
 }
 
 pub struct Geometry {
@@ -450,9 +406,9 @@ pub struct Geometry {
 
 pub type Path3D = Vec<[f32; 3]>;
 
-/** Samples per slice */
+/// Samples per slice
 const AROUND: u32 = 256;
-/** Samples from bottom to top */
+/// Samples from bottom to top
 const UP: u32 = 64;
 
 impl Cup {
@@ -478,8 +434,8 @@ impl Cup {
         for j in 0..UP {
             let (u0, u1) = (j as f64 / UP as f64, (j + 1) as f64 / UP as f64);
             let (y0, y1) = ((h * u0) as f32, (h * u1) as f32);
-            for (a, b) in fill(lattice, &*sweep.slice(u0)) {
-                mesh.wall(a, b, y0, y1);
+            for e in fill(lattice, &*sweep.slice(u0)) {
+                mesh.wall(e.start, e.end, y0, y1);
             }
         }
         mesh.into()
@@ -510,7 +466,7 @@ struct MeshBuilder {
 }
 
 impl MeshBuilder {
-    /** Push one slice at height u and return the index of the first vertex */
+    /// Push one slice at height u and return the index of the first vertex
     fn slice<S: Sweep>(&mut self, shape: &S, u: f64) -> u32 {
         let start = (self.positions.len() / 3) as u32;
         let curve = shape.slice(u);
@@ -525,14 +481,15 @@ impl MeshBuilder {
             //  /
             // z
             // Should we just make Curve2D lay on the xz-plane?
-            let (x, mz) = curve.path(t);
+            let Coord { x, y: mz } = curve.path(t);
             self.positions.extend([x as f32, y, -mz as f32]);
         }
         start
     }
 
-    fn wall(&mut self, (ax, ay): (f64, f64), (bx, by): (f64, f64), y0: f32, y1: f32) {
+    fn wall(&mut self, a: Coord<f64>, b: Coord<f64>, y0: f32, y1: f32) {
         let start = (self.positions.len() / 3) as u32;
+        let ((ax, ay), (bx, by)) = (a.x_y(), b.x_y());
         // slice y becomes -z
         let (ax, az, bx, bz) = (ax as f32, -ay as f32, bx as f32, -by as f32);
         self.positions
@@ -550,7 +507,7 @@ impl MeshBuilder {
         }
     }
 
-    /** Side wall from u0 to u1; outward = false faces it toward the axis */
+    /// Side wall from u0 to u1; outward = false faces it toward the axis
     fn side<S: Sweep>(&mut self, shape: &S, u0: f64, u1: f64, outward: bool) {
         let rows: Vec<u32> = (0..=UP)
             .map(|j| self.slice(shape, u0 + (u1 - u0) * j as f64 / UP as f64))
@@ -564,7 +521,7 @@ impl MeshBuilder {
         }
     }
 
-    /** A fan of triangles from the center of the slice at height u */
+    /// A fan of triangles from the center of the slice at height u
     fn cap<S: Sweep>(&mut self, shape: &S, u: f64, up: bool) {
         let center = (self.positions.len() / 3) as u32;
         self.positions
@@ -594,7 +551,7 @@ struct PathBuilder {
 }
 
 impl PathBuilder {
-    /** Push one slice at height u */
+    /// Push one slice at height u
     fn slice<S: Sweep>(&mut self, shape: &S, u: f64) {
         let curve = shape.slice(u);
         let y = (shape.height() * u) as f32;
@@ -607,12 +564,12 @@ impl PathBuilder {
             //   /
             //  /
             // z
-            let (x, mz) = curve.path(t);
+            let Coord { x, y: mz } = curve.path(t);
             self.positions.push([x as f32, y, -mz as f32]);
         }
     }
 
-    /** Side wall from u0 to u1 */
+    /// Side wall from u0 to u1
     fn side<S: Sweep>(&mut self, shape: &S, u0: f64, u1: f64) {
         (0..=UP).for_each(|j| self.slice(shape, u0 + (u1 - u0) * j as f64 / UP as f64));
     }
