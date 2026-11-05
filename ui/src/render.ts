@@ -1,3 +1,4 @@
+import equal from "fast-deep-equal";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import * as THREE from "three/webgpu";
@@ -75,6 +76,9 @@ customElements.define(
     // Elm sets these via `property "cup" ...`, `property "toolpath" ...`, etc.
     // Elm may set them before the mesh exists, so store them first.
     set cup(c: Cup) {
+      if (equal(this.#cup, c)) {
+        return;
+      }
       this.#cup = c;
       this.#applyCup();
       this.#updateToolpath();
@@ -87,6 +91,9 @@ customElements.define(
     }
 
     set lattice(l: LatticePreset | null) {
+      if (equal(this.#lattice, l)) {
+        return;
+      }
       this.#lattice = l;
       this.#updateInfill();
     }
