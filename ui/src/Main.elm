@@ -5,6 +5,7 @@ import Draggable
 import Html exposing (Html, aside, button, div, h2, input, label, node, span, text)
 import Html.Attributes exposing (checked, class, classList, property, step, style, type_, value)
 import Html.Events exposing (onCheck, onClick, onInput)
+import Html.Lazy exposing (lazy4)
 import Json.Encode as E
 
 
@@ -192,18 +193,9 @@ view { cup, toolpath, infill, spacing, panelState } =
         dragHandle =
             Draggable.mouseTrigger () PanelDragMsg :: Draggable.touchTriggers () PanelDragMsg
     in
-    div [ class "relative h-screen w-screen overflow-hidden bg-base-200" ]
-        [ node "render-preview"
-            [ class "absolute inset-0 block"
-            , property "cup" (encodeCup cup)
-            , property "toolpath" (E.bool toolpath)
-            , property "lattice"
-                (infill
-                    |> Maybe.map (encodeLattice spacing)
-                    |> Maybe.withDefault E.null
-                )
-            ]
-            []
+    div
+        [ class "relative h-screen w-screen overflow-hidden bg-base-200" ]
+        [ lazy4 viewPreview cup toolpath infill spacing
         , aside
             [ class
                 "card card-sm absolute top-4 right-4 w-80 bg-base-100 border-base-300 border-2 text-base-content shadow-lg select-none resize-y overflow-auto"
@@ -231,6 +223,21 @@ view { cup, toolpath, infill, spacing, panelState } =
                 ]
             ]
         ]
+
+
+viewPreview : Cup -> Bool -> Maybe Lattice -> Float -> Html Msg
+viewPreview cup toolpath infill spacing =
+    node "render-preview"
+        [ class "absolute inset-0 block"
+        , property "cup" (encodeCup cup)
+        , property "toolpath" (E.bool toolpath)
+        , property "lattice"
+            (infill
+                |> Maybe.map (encodeLattice spacing)
+                |> Maybe.withDefault E.null
+            )
+        ]
+        []
 
 
 slider :
