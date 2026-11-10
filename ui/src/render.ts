@@ -51,7 +51,7 @@ customElements.define(
         new THREE.Vector3().fromArray(positions, 3 * i),
       );
       const curve = new THREE.CatmullRomCurve3(points);
-      const geometry = new THREE.TubeGeometry(curve, points.length, 0.3, 8, true);
+      const geometry = new THREE.TubeGeometry(curve, points.length, 0.3, 8, false);
       this.#toolpathMesh.geometry.dispose();
       this.#toolpathMesh.geometry = geometry;
     }
